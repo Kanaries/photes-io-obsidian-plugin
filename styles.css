@@ -6,3 +6,53 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+.photes-button {
+	padding: 4px;
+	border-radius: 4px;
+	cursor: pointer;
+	display: inline-flex;
+	justify-content: center;
+	align-items: center;
+	position: absolute;
+	transform: translateX(-100%) translateX(-2px);
+	background-color: var(--interactive-normal);
+	color: var(--text-normal);
+}
+
+.photes-button.disabled {
+	cursor: inherit;
+	pointer-events: none;
+}
+
+.photes-icon {
+	width: 1em;
+	height: 1em;
+}
+
+.loading-icon {
+	width: 1em;
+	height: 1em;
+	animation: spin 1s linear infinite;
+}
+@keyframes spin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+/*
+    color use theme
+*/
+.photes-button:hover {
+	background-color: var(--interactive-hover);
+}
+
+.photes-info {
+	border: 1px solid var(--background-modifier-border);
+	padding: 10px;
+	display: flex;
+	flex-direction: column;
+	border-radius: 4px;
+}
