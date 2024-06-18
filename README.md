@@ -2,7 +2,11 @@
 
 This is a plugin for generating notes from photos.
 
-See our homepage: Photes.IO(https://photes.io)
+This Plugin needs a acoount and payment to use it's AI feature.
+
+This Plugin needs a network connection to upload the image and generate notes from the image.
+
+More information about the plugin and features can be found on the [Photes.IO](https://photes.io) website.
 
 ## Features
 
