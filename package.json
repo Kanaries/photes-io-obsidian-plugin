@@ -1,6 +1,6 @@
 {
 	"name": "photes-io-obsidian-plugin",
-	"version": "1.0.0",
+	"version": "0.1.0",
 	"description": "Create Notes from Photes and insert theme into obsidian.",
 	"main": "main.js",
 	"scripts": {
