@@ -1,19 +1,61 @@
-# Photes IO Obsidian Plugon
+# Photes IO Obsidian Plugin
 
-This is a plugin for generating notes from photos.
+Welcome to the Photes IO Obsidian Plugin! This plugin helps you generate notes from photos, leveraging advanced AI capabilities.
 
-This Plugin needs a acoount and payment to use it's AI feature.
+## Table of Contents
+- [Requirements](#requirements)
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Payment and Credits](#payment-and-credits)
+- [Support and Feedback](#support-and-feedback)
+- [License](#license)
 
-This Plugin needs a network connection to upload the image and generate notes from the image.
+## Requirements
 
-More information about the plugin and features can be found on the [Photes.IO](https://photes.io) website.
+- **Photes.IO Account**: You need to register an account on [Photes.IO](https://photes.io) to access the AI APIs and features.
+- **Network Connection**: A stable internet connection is required to upload images to the AI service for note generation.
+
+For more information, please visit:
+- [Photes.IO Website](https://photes.io)
+- [Photes.IO Privacy Policy](https://photes.io/privacy)
+- [Photes.IO Terms of Service](https://photes.io/terms)
 
 ## Features
 
-- [x] Generate notes from photos
-  
+- [x] Convert your images into text notes in real-time using AI.
+
+## Installation
+
+1. Open Obsidian.
+2. Navigate to the "Settings" menu.
+3. Go to the "Community Plugins" section.
+4. Click on "Browse" and search for "Photes IO".
+5. Click "Install" and then "Enable".
+
 ## Usage
 
-1. Login to Photes.IO
-2. Click camera icon in the toolbar, and choose a photo to generate notes for.
-3. Select a photo in your notebook, and click the camera icon before the photo.
+1. **Login to Photes.IO**: Make sure you are logged into your Photes.IO account.
+2. **Capture Photo**:
+    - Click the camera icon in the toolbar.
+    - Choose a photo to generate notes for.
+3. **Generate Notes from Existing Photos**:
+    - Select a photo in your notebook.
+    - Click the camera icon before the photo to generate notes.
+
+## Payment and Credits
+
+- **Free Users**: Upon registration, free users will receive a default amount of credits to use the AI API for generating notes from images.
+- **Additional Credits**: If you use all of your default credits, you will need to purchase additional credits to continue using the AI services.
+
+For more details on pricing and purchasing credits, please visit our [Pricing Page](https://photes.io/pricing).
+
+## Support and Feedback
+
+If you have any issues, questions, or feedback, please visit our [support page](https://photes.io/support) or contact us directly at support@photes.io.
+
+## License
+
+This plugin is released under the MIT License. For more details, please see the [LICENSE](LICENSE) file.
+
+Thank you for using the Photes IO Obsidian Plugin! We hope it enhances your note-taking experience.
