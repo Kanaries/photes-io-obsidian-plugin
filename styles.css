@@ -13,8 +13,6 @@ If your plugin does not need CSS, delete this file.
 	display: inline-flex;
 	justify-content: center;
 	align-items: center;
-	position: absolute;
-	transform: translateX(-100%) translateX(-2px);
 	background-color: var(--interactive-normal);
 	color: var(--text-normal);
 }

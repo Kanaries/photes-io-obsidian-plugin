@@ -11,7 +11,7 @@ import { EditorView, ViewPlugin } from "@codemirror/view";
 import { DummyPhotesPlugin, PhotesPlugin } from "src/editor";
 import { PhotesSettingsTab } from "src/settings";
 import { getNote } from "src/service";
-import { getImageDOM, loadImageBlob, onElement } from "src/helpers";
+import { getImageDOM, onElement } from "src/helpers";
 import { Platform } from "obsidian";
 import { Extension } from "@codemirror/state";
 
@@ -136,7 +136,7 @@ export default class MyPlugin extends Plugin {
 					let target = e.target as HTMLElement | null;
 					const check = () => {
 						while (target && target != view.dom) {
-							if (target.classList.contains("photes-icon")) {
+							if (target.classList.contains("photes-button")) {
 								return true;
 							}
 							target = target.parentElement;
@@ -145,19 +145,32 @@ export default class MyPlugin extends Plugin {
 					};
 
 					if (check()) {
+						const src = target!.getAttribute("data-src");
 						const currentLine = view.state.doc.lineAt(
 							view.posAtDOM(target!)
 						);
-						const imageDOM = getImageDOM(
-							view.domAtPos(currentLine.from).node
-								.nextSibling as HTMLElement | null
-						);
-
+						if (!src) {
+							new Notice(
+								"There's something wrong when getting the image. You can try right-click on the image to resolve this. Please Report this problem to PhotesIO."
+							);
+							return;
+						}
+						if (src.startsWith("http")) {
+							this.addNote(src, currentLine.to, view);
+							return;
+						}
+						const imageDOM = view.dom.querySelector(
+							`div[src='${src}'] img`
+						) as HTMLImageElement | null;
 						if (imageDOM) {
 							this.addNote(
 								imageDOM.currentSrc,
 								currentLine.to,
 								view
+							);
+						} else {
+							new Notice(
+								"There's something wrong when getting the image. You can try right-click on the image to resolve this. Please Report this problem to PhotesIO."
 							);
 						}
 					}
@@ -234,8 +247,7 @@ export default class MyPlugin extends Plugin {
 		this.longTapTimeoutId = undefined;
 		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (activeView?.editor) {
-			const view = (activeView.editor as unknown as { cm: EditorView })
-				.cm;
+			const view = activeView.editor.cm;
 			const self = this;
 			const modal = new (class extends Modal {
 				constructor(app: App) {
@@ -269,8 +281,8 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async openSetting() {
-		await (this.app as any).setting.open();
-		(this.app as any).setting.openTabById("photes-io-obsidian-plugin");
+		await this.app.setting.open();
+		this.app.setting.openTabById("photes-io-obsidian-plugin");
 	}
 
 	async onImageContextMenu(event: MouseEvent, img: HTMLImageElement) {
@@ -298,8 +310,7 @@ export default class MyPlugin extends Plugin {
 				menu.showAtMouseEvent(event);
 				return;
 			}
-			const view = (activeView.editor as unknown as { cm: EditorView })
-				.cm;
+			const view = activeView.editor.cm;
 			const menu = new Menu();
 			menu.addItem((item) => {
 				item.setIcon("sticky-note");
@@ -347,8 +358,7 @@ export default class MyPlugin extends Plugin {
 		}
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (view) {
-			const editorView = (view.editor as unknown as { cm: EditorView })
-				.cm;
+			const editorView = view.editor.cm;
 			const cursor = editorView.state.selection.main.to;
 			const imageText = `\n![](${filePath})\n`;
 			editorView.dispatch({

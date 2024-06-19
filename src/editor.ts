@@ -33,13 +33,33 @@ export class PhotesPlugin implements PluginValue {
 				from,
 				to,
 				enter(node) {
+					if (node.name.includes("embed_hmd")) {
+						const src = view.state.doc.sliceString(
+							node.from,
+							node.to
+						);
+						// ![[img]]
+						builder.add(
+							node.from - 3,
+							node.from - 3,
+							Decoration.widget({
+								widget: new PhotesWidget(src),
+								side: 0,
+							})
+						);
+					}
 					if (node.name.includes("image-marker")) {
+						const n = node;
+						const line = view.state.doc.lineAt(n.from);
+						const text = view.state.sliceDoc(n.from, line.to);
+						// ![desc](img)
+						const src = text.match(/^!\[.*?\]\((.*?)\)/)?.[1];
 						builder.add(
 							node.from,
 							node.from,
 							Decoration.widget({
-								widget: new PhotesWidget(),
-								side: -1,
+								widget: new PhotesWidget(src ?? ""),
+								side: 0,
 							})
 						);
 					}
@@ -73,13 +93,25 @@ export class DummyPhotesPlugin implements PluginValue {
 				from,
 				to,
 				enter(node) {
+					if (node.name.includes("embed_hmd")) {
+						// ![[img]]
+						builder.add(
+							node.from - 3,
+							node.from - 3,
+							Decoration.widget({
+								widget: new LoadingPhotesWidget(),
+								side: 0,
+							})
+						);
+					}
 					if (node.name.includes("image-marker")) {
+						// ![desc](img)
 						builder.add(
 							node.from,
 							node.from,
 							Decoration.widget({
 								widget: new LoadingPhotesWidget(),
-								side: -1,
+								side: 0,
 							})
 						);
 					}

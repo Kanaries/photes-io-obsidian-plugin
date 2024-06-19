@@ -42,7 +42,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 						this.display();
 					});
 				});
-			containerEl.createEl("h2", { text: "User info" });
+			new Setting(containerEl).setName("User info").setHeading();
 			if (!this.info) {
 				if (this.error) {
 					new Setting(containerEl)
@@ -98,10 +98,12 @@ export class PhotesSettingsTab extends PluginSettingTab {
 					});
 				});
 		}
-		containerEl.createEl("h2", { text: "Common Settings" });
+		// new Setting(containerEl).setName("Common Settings").setHeading();
 		new Setting(containerEl)
-			.setName("image path")
-			.setDesc("The path to save the image")
+			.setName("Image path")
+			.setDesc(
+				"The path to save the image when importing from Ribbon action."
+			)
 			.addText((text) => {
 				text.setPlaceholder("/assets");
 				text.setValue(this.plugin.settings.imagePath);
