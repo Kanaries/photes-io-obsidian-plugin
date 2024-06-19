@@ -1,7 +1,7 @@
 {
 	"id": "photes-io-plugin",
 	"name": "Photes.IO Plugin",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"minAppVersion": "0.15.0",
 	"description": "Create Notes from Photes.",
 	"author": "Kanaries",
