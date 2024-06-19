@@ -44,7 +44,8 @@ async function putBlob(
 export async function getNote(
 	image: string | Blob,
 	accessKey: string,
-	onWrite: (note: string) => void
+	onWrite: (note: string) => void,
+	onUploadEnd: () => void
 ) {
 	let blob: Blob;
 	if (image instanceof Blob) {
@@ -83,6 +84,7 @@ export async function getNote(
 	} catch (e) {
 		throw new Error("Sorry, something went wrong. Please try again.");
 	}
+	onUploadEnd();
 
 	if (!noteResp.ok) {
 		let result;

@@ -30,6 +30,8 @@ export default class MyPlugin extends Plugin {
 	longTapTimeoutId?: number;
 	tab: PhotesSettingsTab;
 	processing: boolean = false;
+	uploading: boolean = false;
+	statusBarItem: HTMLElement | null = null;
 	private editorExtension: Extension[] = [];
 
 	async onload() {
@@ -115,6 +117,24 @@ export default class MyPlugin extends Plugin {
 	}
 
 	onunload() {}
+
+	updateStatusItem() {
+		if (this.processing) {
+			if (!this.statusBarItem) {
+				this.statusBarItem = this.addStatusBarItem();
+			}
+			this.statusBarItem.show();
+			if (this.uploading) {
+				this.statusBarItem.setText(`Photes: Uploading Image...`);
+			} else {
+				this.statusBarItem.setText("Photes: Generating Note...");
+			}
+		} else {
+			if (this.statusBarItem) {
+				this.statusBarItem.hide();
+			}
+		}
+	}
 
 	updateEditorExtension() {
 		this.editorExtension.length = 0;
@@ -382,24 +402,35 @@ export default class MyPlugin extends Plugin {
 			return;
 		}
 		this.processing = true;
+		this.uploading = true;
 		this.updateEditorExtension();
+		this.updateStatusItem();
 
 		let cursor = pos;
 		try {
-			await getNote(image, this.settings.accessToken, (text) => {
-				const change = {
-					from: cursor,
-					to: cursor,
-					insert: text,
-				};
-				view.dispatch({ changes: change });
-				cursor += text.length;
-			});
+			await getNote(
+				image,
+				this.settings.accessToken,
+				(text) => {
+					const change = {
+						from: cursor,
+						to: cursor,
+						insert: text,
+					};
+					view.dispatch({ changes: change });
+					cursor += text.length;
+				},
+				() => {
+					this.uploading = false;
+					this.updateStatusItem();
+				}
+			);
 		} catch (e) {
 			new Notice(`Generate Notes Failed. ${e}`);
 		} finally {
 			this.processing = false;
 			this.updateEditorExtension();
+			this.updateStatusItem();
 		}
 	}
 
