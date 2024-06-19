@@ -54,3 +54,7 @@ If your plugin does not need CSS, delete this file.
 	flex-direction: column;
 	border-radius: 4px;
 }
+
+.photes-status-bar-item {
+	color: var(--color-blue);
+}

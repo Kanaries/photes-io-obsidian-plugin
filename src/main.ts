@@ -122,6 +122,7 @@ export default class MyPlugin extends Plugin {
 		if (this.processing) {
 			if (!this.statusBarItem) {
 				this.statusBarItem = this.addStatusBarItem();
+				this.statusBarItem.className = "photes-status-bar-item";
 			}
 			this.statusBarItem.show();
 			if (this.uploading) {
