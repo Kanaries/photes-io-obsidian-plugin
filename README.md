@@ -55,7 +55,5 @@ For more details on pricing and purchasing credits, please visit our [Pricing Pa
 If you have any issues, questions, or feedback, please visit our [support page](https://photes.io/support) or contact us directly at support@photes.io.
 
 ## License
-
-This plugin is released under the MIT License. For more details, please see the [LICENSE](LICENSE) file.
-
-Thank you for using the Photes IO Obsidian Plugin! We hope it enhances your note-taking experience.
+2024 Kanaries Data Inc. All rights reserved.
+Please see the [LICENSE](LICENSE) file.
