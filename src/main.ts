@@ -1,17 +1,19 @@
 import {
 	App,
+	ButtonComponent,
 	MarkdownView,
 	Menu,
 	Modal,
 	Notice,
 	Plugin,
+	Setting,
 	normalizePath,
 } from "obsidian";
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import { DummyPhotesPlugin, PhotesPlugin } from "src/editor";
 import { PhotesSettingsTab } from "src/settings";
 import { getNote } from "src/service";
-import { getImageDOM, onElement } from "src/helpers";
+import { onElement } from "src/helpers";
 import { Platform } from "obsidian";
 import { Extension } from "@codemirror/state";
 
@@ -28,10 +30,13 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 	longTapTimeoutId?: number;
+	shouldOpenModal: boolean = false;
+	openModal?: () => void;
 	tab: PhotesSettingsTab;
 	processing: boolean = false;
 	uploading: boolean = false;
 	statusBarItem: HTMLElement | null = null;
+	modalButtonItem: ButtonComponent | null = null;
 	private editorExtension: Extension[] = [];
 
 	async onload() {
@@ -118,7 +123,7 @@ export default class MyPlugin extends Plugin {
 
 	onunload() {}
 
-	updateStatusItem() {
+	updateUIItems() {
 		if (this.processing) {
 			if (!this.statusBarItem) {
 				this.statusBarItem = this.addStatusBarItem();
@@ -130,9 +135,22 @@ export default class MyPlugin extends Plugin {
 			} else {
 				this.statusBarItem.setText("Photes: Generating Note...");
 			}
+
+			if (this.modalButtonItem) {
+				this.modalButtonItem.setDisabled(true);
+				if (this.uploading) {
+					this.modalButtonItem.setButtonText("Uploading Image...");
+				} else {
+					this.modalButtonItem.setButtonText("Generating Note...");
+				}
+			}
 		} else {
 			if (this.statusBarItem) {
 				this.statusBarItem.hide();
+			}
+			if (this.modalButtonItem) {
+				this.modalButtonItem.setDisabled(false);
+				this.modalButtonItem.setButtonText("Generate Note");
 			}
 		}
 	}
@@ -225,7 +243,7 @@ export default class MyPlugin extends Plugin {
 					document,
 					"touchend",
 					"img",
-					this.stopWaitingForLongTap.bind(this)
+					this.stopWaitingForLongTap.bind(this, true)
 				)
 			);
 
@@ -247,58 +265,97 @@ export default class MyPlugin extends Plugin {
 		} else {
 			if (event.targetTouches.length == 1) {
 				this.longTapTimeoutId = window.setTimeout(
-					this.processLongTap.bind(this, event, img),
+					this.processLongTap.bind(this, event),
 					500
 				);
+				this.shouldOpenModal = false;
+				this.openModal = () => {
+					const activeView =
+						this.app.workspace.getActiveViewOfType(MarkdownView);
+					if (activeView?.editor) {
+						const view = activeView.editor.cm;
+						const self = this;
+						let pos: number;
+						try {
+							pos = view.posAtDOM(img);
+						} catch (e) {
+							console.log("get pos failed", e);
+							return;
+						}
+						const modal = new (class extends Modal {
+							constructor(app: App) {
+								super(app);
+							}
+							onOpen() {
+								let { contentEl } = this;
+								if (!self.settings.accessToken) {
+									new Setting(contentEl).addButton((btn) => {
+										btn.setButtonText(
+											"Login to Generate Note"
+										)
+											.setCta()
+											.onClick(() => {
+												self.openSetting();
+												this.close();
+											});
+									});
+								} else {
+									new Setting(contentEl).addButton((btn) => {
+										btn.setButtonText("Generate Note")
+											.setCta()
+											.onClick(async () => {
+												if (
+													!self.settings.accessToken
+												) {
+													new Notice(
+														"Please login to use this feature"
+													);
+													self.openSetting();
+													return;
+												}
+												await self.addNote(
+													img.currentSrc,
+													pos,
+													view
+												);
+												this.close();
+											});
+										self.modalButtonItem = btn;
+									});
+								}
+							}
+
+							onClose() {
+								let { contentEl } = this;
+								contentEl.empty();
+							}
+						})(this.app);
+						modal.open();
+					}
+				};
 			}
 		}
 	}
 
 	// mobile
-	stopWaitingForLongTap() {
+	stopWaitingForLongTap(checkOpenModal: boolean = false) {
 		if (this.longTapTimeoutId) {
 			clearTimeout(this.longTapTimeoutId);
 			this.longTapTimeoutId = undefined;
 		}
+		if (this.shouldOpenModal && this.openModal && checkOpenModal) {
+			this.openModal();
+			this.shouldOpenModal = false;
+			this.openModal = undefined;
+		}
 	}
 
 	// mobile
-	async processLongTap(event: TouchEvent, img: HTMLImageElement) {
+	async processLongTap(event: TouchEvent) {
 		event.stopPropagation();
+		event.preventDefault();
 		this.longTapTimeoutId = undefined;
-		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (activeView?.editor) {
-			const view = activeView.editor.cm;
-			const self = this;
-			const modal = new (class extends Modal {
-				constructor(app: App) {
-					super(app);
-				}
-
-				onOpen() {
-					let { contentEl } = this;
-					const button = contentEl.createEl("button", {
-						text: "Generate Note",
-					});
-					button.onclick = () => {
-						if (!self.settings.accessToken) {
-							new Notice("Please login to use this feature");
-							self.openSetting();
-							return;
-						}
-						const pos = view.posAtDOM(img);
-						self.addNote(img.currentSrc, pos, view);
-						this.close();
-					};
-				}
-
-				onClose() {
-					let { contentEl } = this;
-					contentEl.empty();
-				}
-			})(this.app);
-			modal.open();
-		}
+		this.shouldOpenModal = true;
 	}
 
 	async openSetting() {
@@ -381,7 +438,7 @@ export default class MyPlugin extends Plugin {
 		if (view) {
 			const editorView = view.editor.cm;
 			const cursor = editorView.state.selection.main.to;
-			const imageText = `\n![](${filePath})\n`;
+			const imageText = `\n![[${filePath}]]\n`;
 			editorView.dispatch({
 				changes: {
 					from: cursor,
@@ -405,7 +462,7 @@ export default class MyPlugin extends Plugin {
 		this.processing = true;
 		this.uploading = true;
 		this.updateEditorExtension();
-		this.updateStatusItem();
+		this.updateUIItems();
 
 		let cursor = pos;
 		try {
@@ -423,7 +480,7 @@ export default class MyPlugin extends Plugin {
 				},
 				() => {
 					this.uploading = false;
-					this.updateStatusItem();
+					this.updateUIItems();
 				}
 			);
 		} catch (e) {
@@ -431,7 +488,7 @@ export default class MyPlugin extends Plugin {
 		} finally {
 			this.processing = false;
 			this.updateEditorExtension();
-			this.updateStatusItem();
+			this.updateUIItems();
 		}
 	}
 
