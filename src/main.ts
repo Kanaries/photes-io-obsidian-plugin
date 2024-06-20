@@ -143,6 +143,12 @@ export default class MyPlugin extends Plugin {
 				} else {
 					this.modalButtonItem.setButtonText("Generating Note...");
 				}
+			} else if (Platform.isMobile) {
+				if (this.uploading) {
+					new Notice("Photes: Uploading Image...");
+				} else {
+					new Notice("Photes: Generating Note...");
+				}
 			}
 		} else {
 			if (this.statusBarItem) {
@@ -328,6 +334,7 @@ export default class MyPlugin extends Plugin {
 							onClose() {
 								let { contentEl } = this;
 								contentEl.empty();
+								self.modalButtonItem = null;
 							}
 						})(this.app);
 						modal.open();
