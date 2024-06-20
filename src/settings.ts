@@ -116,6 +116,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 
 	async fetchInfo() {
 		this.info = null;
+		this.error = null;
 		this.display();
 		try {
 			const resp = await getInfo(this.plugin.settings.accessToken);
