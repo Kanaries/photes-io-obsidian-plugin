@@ -298,3 +298,16 @@ export async function getSupabaseToken(accessKey: string) {
 		throw new Error("Sorry, something went wrong. Please try again.");
 	}
 }
+
+export async function getQRCodeURL(accessKey: string) {
+	const resp = await fetch(`${BASE_URL}/api/plugin/quick_login`, {
+		headers: {
+			"access-key": accessKey,
+		},
+	});
+	if (resp.ok) {
+		return resp.text();
+	} else {
+		throw new Error("Sorry, something went wrong. Please try again.");
+	}
+}

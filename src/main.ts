@@ -12,11 +12,12 @@ import {
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import { DummyPhotesPlugin, PhotesPlugin } from "src/editor";
 import { PhotesSettingsTab } from "src/settings";
-import { getNote } from "src/service";
+import { getNote, startSync } from "src/service";
 import { onElement } from "src/helpers";
 import { Platform } from "obsidian";
 import { Extension } from "@codemirror/state";
 import { listenSync } from "./sync";
+import PhotesQRModal from "./qr";
 
 interface MyPluginSettings {
 	accessToken: string;
@@ -66,6 +67,20 @@ export default class PhotesIOPlugin extends Plugin {
 					this.openSetting();
 					return;
 				}
+				const pickFile = (
+					inject?: (input: HTMLInputElement) => void
+				) => {
+					const filePicker = createEl("input", {});
+					filePicker.accept = "image/*";
+					filePicker.type = "file";
+					inject?.(filePicker);
+					filePicker.onchange = () => {
+						if (!filePicker.files?.length) return;
+						const selectedFile = filePicker.files[0];
+						this.addImage(selectedFile);
+					};
+					filePicker.click();
+				};
 				if (Platform.isAndroidApp) {
 					const menu = new Menu();
 					menu.addItem((item) =>
@@ -73,47 +88,41 @@ export default class PhotesIOPlugin extends Plugin {
 							.setTitle("From Camera")
 							.setIcon("camera")
 							.onClick(() => {
-								const filePicker = createEl("input", {});
-								filePicker.accept = "image/*";
-								filePicker.capture = "camera";
-								filePicker.type = "file";
-								filePicker.onchange = () => {
-									if (!filePicker.files?.length) return;
-									const selectedFile = filePicker.files[0];
-									this.addImage(selectedFile);
-								};
-								filePicker.click();
+								pickFile((filePicker) => {
+									filePicker.capture = "camera";
+								});
 							})
 					);
-
 					menu.addItem((item) =>
 						item
 							.setTitle("From Gallery")
 							.setIcon("book-image")
 							.onClick(() => {
-								const filePicker = createEl("input", {});
-								filePicker.accept = "image/*";
-								filePicker.type = "file";
-								filePicker.onchange = () => {
-									if (!filePicker.files?.length) return;
-									const selectedFile = filePicker.files[0];
-									this.addImage(selectedFile);
-								};
-								filePicker.click();
+								pickFile();
 							})
 					);
-
 					menu.showAtMouseEvent(evt);
+				} else if (Platform.isMobile) {
+					pickFile();
 				} else {
-					const filePicker = createEl("input", {});
-					filePicker.accept = "image/*";
-					filePicker.type = "file";
-					filePicker.onchange = () => {
-						if (!filePicker.files?.length) return;
-						const selectedFile = filePicker.files[0];
-						this.addImage(selectedFile);
-					};
-					filePicker.click();
+					const menu = new Menu();
+					menu.addItem((item) =>
+						item
+							.setTitle("Generate Note from Smartphone")
+							.setIcon("monitor-smartphone")
+							.onClick(() => {
+								new PhotesQRModal(this.app, this).open();
+							})
+					);
+					menu.addItem((item) =>
+						item
+							.setTitle("Generate Note from Image")
+							.setIcon("book-image")
+							.onClick(() => {
+								pickFile();
+							})
+					);
+					menu.showAtMouseEvent(evt);
 				}
 			}
 		);
@@ -121,6 +130,45 @@ export default class PhotesIOPlugin extends Plugin {
 		this.tab = new PhotesSettingsTab(this.app, this);
 
 		this.addSettingTab(this.tab);
+
+		this.addCommand({
+			id: "photes-sync-notes",
+			name: "Sync Notes",
+			callback: () => {
+				if (!this.settings.accessToken) {
+					new Notice("Please login to use this feature");
+					this.openSetting();
+					return;
+				}
+				startSync(
+					this.settings.accessToken,
+					this.app,
+					this.settings.syncPath || DEFAULT_SETTINGS.syncPath,
+					(x) => {
+						this.showSyncStatus(x);
+						this.tab.syncingInfo = x;
+						this.tab.display();
+					},
+					this.settings.syncTimestamp
+				).then(({ lastSyncedTime, syncTimestamp }) => {
+					this.settings.lastSyncedTime = lastSyncedTime;
+					this.settings.syncTimestamp = syncTimestamp;
+					new Notice("Sync Completed");
+					this.showSyncStatus("");
+					this.tab.syncingInfo = "";
+					this.tab.display();
+					this.saveSettings();
+				});
+			},
+		});
+
+		this.addCommand({
+			id: "photes-upload-from-mobile",
+			name: "Upload Image from Mobile",
+			callback: () => {
+				new PhotesQRModal(this.app, this).open();
+			},
+		});
 
 		this.registerObsidianProtocolHandler("photes-login", async (params) => {
 			const { token } = params;
