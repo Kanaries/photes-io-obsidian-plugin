@@ -1,18 +1,20 @@
 import { App } from "obsidian";
 import {
 	downloadAssets,
-	getNote,
 	getNotebookDownloadURL,
 	getSupabaseToken,
+	removeNotebook,
 	startSync,
 } from "./service";
 import { createClient } from "@supabase/supabase-js";
 import type PhotesIOPlugin from "./main";
 import { DEFAULT_SYNC_PATH } from "./const";
+import { createQueuedProcessor } from "./helpers";
 
 const SUPABASE_URL = "https://psdgfelmelrmwkbhjlza.supabase.co";
 const SUPABASE_KEY =
 	"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBzZGdmZWxtZWxybXdrYmhqbHphIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTYxOTkyOTEsImV4cCI6MjAzMTc3NTI5MX0.K3t0969cHOgxd9KMl7kE-bRf1wIVAcZgxbUO6-1taz4";
+const client = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 interface INotebook {
 	content: string | null;
@@ -39,15 +41,64 @@ export async function listenSync(
 	plugin: PhotesIOPlugin
 ): Promise<{
 	stop: () => void;
+	startRefetch: () => void;
 }> {
 	const token = await getSupabaseToken(accessKey);
-	const client = createClient(SUPABASE_URL, SUPABASE_KEY);
 	client.realtime.setAuth(token);
 	const reportSync = async (syncTimestamp: number) => {
 		plugin.settings.lastSyncedTime = Date.now();
 		plugin.settings.syncTimestamp = syncTimestamp;
 		await plugin.saveSettings();
 	};
+	const startRefetch = () => {
+		startSync(
+			accessKey,
+			app,
+			plugin.settings.syncPath || DEFAULT_SYNC_PATH,
+			(x) => {
+				plugin.showSyncStatus(x);
+				plugin.tab.syncingInfo = x;
+				plugin.tab.display();
+			},
+			plugin.settings.syncTimestamp
+		).then(({ syncTimestamp }) => {
+			plugin.settings.lastSyncedTime = Date.now();
+			plugin.settings.syncTimestamp = syncTimestamp;
+			plugin.tab.syncingInfo = "";
+			plugin.showSyncStatus("");
+			plugin.tab.display();
+			return plugin.saveSettings();
+		});
+	};
+
+	const updateNotebook = createQueuedProcessor(
+		async ({
+			notebook_id,
+			title = "!",
+			updated_at = Date.now(),
+		}: {
+			notebook_id: number;
+			title?: string;
+			updated_at?: string | number;
+		}) => {
+			const download = downloadAssets(
+				app,
+				accessKey,
+				plugin.settings.syncPath || DEFAULT_SYNC_PATH
+			);
+			download({
+				url: getNotebookDownloadURL(notebook_id),
+				dest: `${
+					plugin.settings.syncPath || DEFAULT_SYNC_PATH
+				}/${title}-${notebook_id}.md`,
+				needAuth: true,
+			}).then(() => {
+				reportSync(new Date(updated_at).getTime());
+			});
+		},
+		(x) => x.notebook_id
+	);
+
 	const channel = client
 		.channel("plugin")
 		.on(
@@ -61,23 +112,18 @@ export async function listenSync(
 						break;
 					case "UPDATE": {
 						if (item.deleted_at) {
-							// remove the notebook
+							removeNotebook(
+								app,
+								plugin.settings.syncPath || DEFAULT_SYNC_PATH,
+								item.id
+							);
 							break;
 						}
 						if (item.note_orders) {
-							const download = downloadAssets(
-								app,
-								accessKey,
-								plugin.settings.syncPath || DEFAULT_SYNC_PATH
-							);
-							download({
-								url: getNotebookDownloadURL(item.id),
-								dest: `${
-									plugin.settings.syncPath ||
-									DEFAULT_SYNC_PATH
-								}/${item.title}-${item.id}.md`,
-							}).then(() => {
-								reportSync(new Date(item.updated_at).getTime());
+							updateNotebook({
+								notebook_id: item.id,
+								title: item.title,
+								updated_at: item.updated_at,
 							});
 						}
 						break;
@@ -119,28 +165,19 @@ export async function listenSync(
 						break;
 					}
 					case "UPDATE": {
-						// should be handled by notebook
+						updateNotebook({
+							notebook_id: item.notebook_id,
+							updated_at: item.generated_at,
+						});
 						break;
 					}
 				}
 			}
 		)
 		.subscribe((e) => {
+			console.debug("photesio: channel status", e);
 			if (e === "SUBSCRIBED" && plugin.settings.syncTimestamp) {
-				startSync(
-					accessKey,
-					app,
-					plugin.settings.syncPath || DEFAULT_SYNC_PATH,
-					(x) => {
-						plugin.showSyncStatus(x);
-						plugin.tab.syncingInfo = x;
-						plugin.tab.display();
-					},
-					plugin.settings.syncTimestamp
-				).then(({ syncTimestamp }) => {
-					plugin.settings.syncTimestamp = syncTimestamp;
-					return plugin.saveSettings();
-				});
+				startRefetch();
 			}
 		});
 
@@ -148,5 +185,6 @@ export async function listenSync(
 		stop: () => {
 			channel.unsubscribe();
 		},
+		startRefetch,
 	};
 }

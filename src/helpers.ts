@@ -98,3 +98,39 @@ export function getImageDOM(
 	}
 	return null;
 }
+
+export function createQueuedProcessor<T>(
+	processor: (item: T) => Promise<void>,
+	getValue: (item: T) => string | number
+) {
+	const processingMap = new Map<
+		string | number,
+		| {
+				state: "processing";
+		  }
+		| {
+				state: "pending";
+				item: T;
+		  }
+	>();
+
+	async function processNext(key: string | number, arg: T) {
+		processingMap.set(key, { state: "processing" });
+		await processor(arg);
+		const pending = processingMap.get(key);
+		processingMap.delete(key);
+
+		if (pending?.state === "pending") {
+			processNext(key, pending.item);
+		}
+	}
+
+	return async function (arg: T) {
+		const key = getValue(arg);
+		if (processingMap.has(key)) {
+			processingMap.set(key, { state: "pending", item: arg });
+		} else {
+			processNext(key, arg);
+		}
+	};
+}

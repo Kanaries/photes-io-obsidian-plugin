@@ -46,7 +46,7 @@ export default class PhotesIOPlugin extends Plugin {
 	uploading: boolean = false;
 	statusBarItem: HTMLElement | null = null;
 	modalButtonItem: ButtonComponent | null = null;
-	syncInstance: { stop: () => void } | null = null;
+	syncInstance: Awaited<ReturnType<typeof listenSync>> | null = null;
 	private editorExtension: Extension[] = [];
 
 	async onload() {
@@ -139,7 +139,9 @@ export default class PhotesIOPlugin extends Plugin {
 		}
 	}
 
-	onunload() {}
+	onunload() {
+		this.syncInstance?.stop();
+	}
 
 	updateUIItems() {
 		if (this.processing) {

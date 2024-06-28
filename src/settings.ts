@@ -124,7 +124,6 @@ export class PhotesSettingsTab extends PluginSettingTab {
 								},
 								this.plugin.settings.syncTimestamp
 							);
-						console.log(syncTimestamp);
 						this.plugin.settings.lastSyncedTime = lastSyncedTime;
 						this.plugin.settings.syncTimestamp = syncTimestamp;
 						new Notice("Sync Completed");
@@ -196,6 +195,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 													self.plugin.settings.autoSync =
 														true;
 													self.plugin.saveSettings();
+
 													self.plugin.syncInstance =
 														await listenSync(
 															self.plugin.settings
@@ -203,6 +203,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 															self.app,
 															self.plugin
 														);
+													self.plugin.syncInstance.startRefetch();
 												});
 											});
 									}

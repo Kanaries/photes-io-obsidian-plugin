@@ -143,6 +143,20 @@ export async function getDownloadList(
 	}
 }
 
+export const removeNotebook = async (
+	app: App,
+	path: string,
+	notebook_id: number
+) => {
+	const ending = `-${notebook_id}.md`;
+	const file = app.vault
+		.getFolderByPath(normalizePath(path))
+		?.children.find((x) => x.name.endsWith(ending));
+	if (file) {
+		await app.vault.delete(file);
+	}
+};
+
 export const downloadAssets =
 	(app: App, accessKey: string, path: string) =>
 	async (item: { url: string; dest: string; needAuth?: boolean }) => {
@@ -156,13 +170,26 @@ export const downloadAssets =
 		if (item.dest.endsWith(".md")) {
 			// overwrite existing markdown
 			const ending = item.dest.split("-").at(-1);
+			const filename = item.dest.split("/").at(-1);
 			if (ending) {
 				const file = app.vault
 					.getFolderByPath(normalizePath(path))
 					?.children.find((x) => x.name.endsWith(ending));
 				if (file) {
-					await app.vault.delete(file);
+					if (file.name === filename || filename === `!-${ending}`) {
+						// just edit the existing file
+						await app.vault.modifyBinary(
+							app.vault.getFileByPath(file.path)!,
+							await resp.arrayBuffer()
+						);
+						return;
+					} else {
+						await app.vault.delete(file);
+					}
 				}
+			} else if (filename === `!-${ending}.md`) {
+				// should edit exist file, return if not exist
+				return;
 			}
 		} else {
 			const file = app.vault.getAbstractFileByPath(
