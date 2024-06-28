@@ -16,18 +16,27 @@ import { getNote } from "src/service";
 import { onElement } from "src/helpers";
 import { Platform } from "obsidian";
 import { Extension } from "@codemirror/state";
+import { listenSync } from "./sync";
 
 interface MyPluginSettings {
 	accessToken: string;
 	imagePath: string;
+	syncPath: string;
+	autoSync: boolean;
+	lastSyncedTime: number;
+	syncTimestamp: number;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	accessToken: "",
 	imagePath: "",
+	syncPath: "",
+	autoSync: false,
+	lastSyncedTime: 0,
+	syncTimestamp: 0,
 };
 
-export default class MyPlugin extends Plugin {
+export default class PhotesIOPlugin extends Plugin {
 	settings: MyPluginSettings;
 	longTapTimeoutId?: number;
 	shouldOpenModal: boolean = false;
@@ -37,6 +46,7 @@ export default class MyPlugin extends Plugin {
 	uploading: boolean = false;
 	statusBarItem: HTMLElement | null = null;
 	modalButtonItem: ButtonComponent | null = null;
+	syncInstance: { stop: () => void } | null = null;
 	private editorExtension: Extension[] = [];
 
 	async onload() {
@@ -119,6 +129,14 @@ export default class MyPlugin extends Plugin {
 			this.tab.fetchInfo();
 			this.tab.display();
 		});
+
+		if (this.settings.autoSync && this.settings.accessToken) {
+			this.syncInstance = await listenSync(
+				this.settings.accessToken,
+				this.app,
+				this
+			);
+		}
 	}
 
 	onunload() {}
@@ -157,6 +175,21 @@ export default class MyPlugin extends Plugin {
 			if (this.modalButtonItem) {
 				this.modalButtonItem.setDisabled(false);
 				this.modalButtonItem.setButtonText("Generate Note");
+			}
+		}
+	}
+
+	showSyncStatus(info: string) {
+		if (info) {
+			if (!this.statusBarItem) {
+				this.statusBarItem = this.addStatusBarItem();
+				this.statusBarItem.className = "photes-status-bar-item";
+			}
+			this.statusBarItem.show();
+			this.statusBarItem.setText(info);
+		} else {
+			if (this.statusBarItem) {
+				this.statusBarItem.hide();
 			}
 		}
 	}

@@ -1,5 +1,7 @@
-import { loadImageBlob } from "./helpers";
+import { App, normalizePath } from "obsidian";
+import { loadImageBlob, retry } from "./helpers";
 import { upload } from "@vercel/blob/client";
+import pLimit from "p-limit";
 
 const BASE_URL = "https://photes.io";
 
@@ -114,4 +116,158 @@ export async function getNote(
 
 export async function login() {
 	window.open(`${BASE_URL}/obsidian/login`);
+}
+
+export async function getDownloadList(
+	accessKey: string,
+	fromTimestamp?: number
+): Promise<{
+	lastUpdated: number;
+	fileList: {
+		assets: string[];
+		markdowns: { url: string; name: string }[];
+	};
+}> {
+	const resp = await fetch(
+		`${BASE_URL}/api/plugin/list?timestamp=${fromTimestamp ?? 0}`,
+		{
+			headers: {
+				"access-key": accessKey,
+			},
+		}
+	);
+	if (resp.ok) {
+		return resp.json();
+	} else {
+		throw new Error("Sorry, something went wrong. Please try again.");
+	}
+}
+
+export const downloadAssets =
+	(app: App, accessKey: string, path: string) =>
+	async (item: { url: string; dest: string; needAuth?: boolean }) => {
+		const resp = await fetch(item.url, {
+			headers: item.needAuth
+				? {
+						"access-key": accessKey,
+				  }
+				: undefined,
+		});
+		if (item.dest.endsWith(".md")) {
+			// overwrite existing markdown
+			const ending = item.dest.split("-").at(-1);
+			if (ending) {
+				const file = app.vault
+					.getFolderByPath(normalizePath(path))
+					?.children.find((x) => x.name.endsWith(ending));
+				if (file) {
+					await app.vault.delete(file);
+				}
+			}
+		} else {
+			const file = app.vault.getAbstractFileByPath(
+				normalizePath(item.dest)
+			);
+			if (file) {
+				// don't download normal asset if file exists
+				return;
+			}
+		}
+		await app.vault.createBinary(item.dest, await resp.arrayBuffer(), {});
+	};
+
+export const getNotebookDownloadURL = (notebookID: number) =>
+	`${BASE_URL}/api/plugin/download?id=${notebookID}`;
+
+export async function startSync(
+	accessKey: string,
+	app: App,
+	path: string,
+	onReport?: (info: string) => void,
+	fromTimestamp?: number
+) {
+	onReport?.("Fetching data...");
+	const folderExists = app.vault.getAbstractFileByPath(normalizePath(path));
+	if (!folderExists) {
+		await app.vault.createFolder(path);
+	}
+	const imageFolderExists = app.vault.getAbstractFileByPath(
+		normalizePath(path + "/images")
+	);
+	if (!imageFolderExists) {
+		await app.vault.createFolder(path + "/images");
+	}
+
+	const { fileList, lastUpdated } = await getDownloadList(
+		accessKey,
+		fromTimestamp
+	);
+	const { assets, markdowns } = fileList;
+	const downloadList: { url: string; dest: string; needAuth?: boolean }[] =
+		[];
+	assets.forEach((x) => {
+		const filename = x.split("/").at(-1);
+		const filePath = `${path}/images/${filename}`;
+		const fileExists = app.vault.getAbstractFileByPath(
+			normalizePath(filePath)
+		);
+		if (!fileExists) {
+			downloadList.push({
+				url: x,
+				dest: filePath,
+			});
+		}
+	});
+	markdowns.forEach((x) => {
+		downloadList.push({
+			url: x.url,
+			dest: `${path}/${x.name}`,
+			needAuth: true,
+		});
+	});
+	const total = downloadList.length;
+	let finnished = 0;
+	let failed = 0;
+	const download = retry(downloadAssets(app, accessKey, path), {
+		maxRetry: 3,
+		wait: 500,
+	});
+	onReport?.(`Downloading... 0/${total}`);
+	const limit = pLimit(5);
+	const promises = downloadList.map((x) =>
+		limit(() =>
+			download(x)
+				.catch(() => {
+					failed++;
+				})
+				.finally(() => {
+					finnished++;
+					onReport?.(`Downloading... ${finnished}/${total}`);
+				})
+		)
+	);
+	await Promise.all(promises);
+	if (failed > 0) {
+		onReport?.(`Sync Completed with ${failed} failed downloads`);
+	} else {
+		onReport?.(`Sync Completed`);
+	}
+
+	return {
+		lastSyncedTime: Date.now(),
+		syncTimestamp: lastUpdated,
+	};
+}
+
+export async function getSupabaseToken(accessKey: string) {
+	const resp = await fetch(`${BASE_URL}/api/plugin/auth`, {
+		headers: {
+			"access-key": accessKey,
+		},
+	});
+	if (resp.ok) {
+		return resp.text();
+	} else {
+		throw new Error("Sorry, something went wrong. Please try again.");
+	}
 }

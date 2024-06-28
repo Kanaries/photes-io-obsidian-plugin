@@ -8,6 +8,30 @@ export function withTimeout<T>(ms: number, promise: Promise<T>): Promise<T> {
 	return Promise.race([promise, timeout]);
 }
 
+export function retry<T extends any[], U>(
+	builder: (...param: T) => Promise<U>,
+	options: {
+		maxRetry?: number;
+		wait?: number;
+	} = {}
+) {
+	const { maxRetry = 3, wait = 100 } = options;
+	return async function (...p: T) {
+		let lastErr: any;
+		for (let i = 0; i < maxRetry; i++) {
+			try {
+				return await builder(...p);
+			} catch (e) {
+				lastErr = e;
+				if (i < maxRetry - 1) {
+					await new Promise<void>((r) => setTimeout(r, wait));
+				}
+			}
+		}
+		throw lastErr;
+	};
+}
+
 export function onElement(
 	el: Document,
 	event: keyof HTMLElementEventMap,
