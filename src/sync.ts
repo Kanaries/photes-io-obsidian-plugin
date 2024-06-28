@@ -108,8 +108,6 @@ export async function listenSync(
 				const item = payload.new as INotebook;
 				switch (payload.eventType) {
 					case "INSERT":
-						// Do nothing because notebook is empty.
-						break;
 					case "UPDATE": {
 						if (item.deleted_at) {
 							removeNotebook(
@@ -119,13 +117,11 @@ export async function listenSync(
 							);
 							break;
 						}
-						if (item.note_orders) {
-							updateNotebook({
-								notebook_id: item.id,
-								title: item.title,
-								updated_at: item.updated_at,
-							});
-						}
+						updateNotebook({
+							notebook_id: item.id,
+							title: item.title,
+							updated_at: item.updated_at,
+						});
 						break;
 					}
 				}

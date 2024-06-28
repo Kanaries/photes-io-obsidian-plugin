@@ -187,7 +187,7 @@ export const downloadAssets =
 						await app.vault.delete(file);
 					}
 				}
-			} else if (filename === `!-${ending}.md`) {
+			} else if (filename === `!-${ending}`) {
 				// should edit exist file, return if not exist
 				return;
 			}

@@ -61,7 +61,7 @@ export default class PhotesIOPlugin extends Plugin {
 
 		this.addRibbonIcon(
 			"camera",
-			"Generate notes from photos",
+			Platform.isMobile ? "Generate notes from photos" : "Generate notes",
 			async (evt: MouseEvent) => {
 				if (!this.settings.accessToken) {
 					this.openSetting();
