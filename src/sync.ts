@@ -1,4 +1,4 @@
-import { App } from "obsidian";
+import { App, TFile, normalizePath } from "obsidian";
 import {
 	downloadAssets,
 	getNotebookDownloadURL,
@@ -9,7 +9,8 @@ import {
 import { createClient } from "@supabase/supabase-js";
 import type PhotesIOPlugin from "./main";
 import { DEFAULT_SYNC_PATH } from "./const";
-import { createQueuedProcessor } from "./helpers";
+import { createQueuedProcessor, noteToMarkdown } from "./helpers";
+import { jwtDecode } from "jwt-decode";
 
 const SUPABASE_URL = "https://psdgfelmelrmwkbhjlza.supabase.co";
 const SUPABASE_KEY =
@@ -44,6 +45,9 @@ export async function listenSync(
 	startRefetch: () => void;
 }> {
 	const token = await getSupabaseToken(accessKey);
+	const decoded = jwtDecode(token);
+	const user_id = decoded.sub;
+
 	client.realtime.setAuth(token);
 	const reportSync = async (syncTimestamp: number) => {
 		plugin.settings.lastSyncedTime = Date.now();
@@ -99,8 +103,90 @@ export async function listenSync(
 		(x) => x.notebook_id
 	);
 
+	const realtimeNoteMap: Record<
+		string,
+		{
+			notebook_id: number;
+			image_name: string;
+			image_path: string;
+			template?: string;
+			file?: TFile;
+		}
+	> = {};
+
 	const channel = client
-		.channel("plugin")
+		.channel(user_id || "plugin")
+		.on(
+			"broadcast",
+			{
+				event: "note-content",
+			},
+			async ({ payload }) => {
+				const data = payload as {
+					content: string;
+					note_id: number;
+					notebook_id: number;
+					version: number;
+					end?: boolean;
+				};
+				if (realtimeNoteMap[data.note_id]) {
+					const item = realtimeNoteMap[data.note_id];
+					const ending = `-${item.notebook_id}.md`;
+					const file =
+						item.file ??
+						(() => {
+							const fileA = app.vault
+								.getFolderByPath(
+									normalizePath(
+										plugin.settings.syncPath ||
+											DEFAULT_SYNC_PATH
+									)
+								)
+								?.children.find((x) => x.name.endsWith(ending));
+							if (fileA) {
+								const file = app.vault.getFileByPath(
+									fileA.path
+								)!;
+								item.file = file;
+								return file;
+							}
+							return null;
+						})();
+					if (!file) {
+						return;
+					}
+					if (!item.template) {
+						try {
+							const resp = await fetch(
+								getNotebookDownloadURL(
+									item.notebook_id,
+									data.note_id
+								),
+								{
+									headers: {
+										"access-key": accessKey,
+									},
+								}
+							);
+							item.template = await resp.text();
+						} catch (e) {
+							console.error(e);
+						}
+					}
+					if (item.template) {
+						const content = item.template.replace(
+							`<!-- place-holder-note-${data.note_id} -->`,
+							noteToMarkdown({
+								content: data.content,
+								image_name: item.image_name,
+								image_path: item.image_path,
+							})
+						);
+						await app.vault.modify(file, content);
+					}
+				}
+			}
+		)
 		.on(
 			"postgres_changes",
 			{ schema: "public", event: "*", table: "notebooks" },
@@ -156,8 +242,12 @@ export async function listenSync(
 								url: imageURL.data.publicUrl,
 								dest: filePath,
 							});
+							realtimeNoteMap[item.id] = {
+								image_name: item.image.name,
+								image_path: `./images/${filename}`,
+								notebook_id: item.notebook_id,
+							};
 						}
-						// note is being created, so don't need to download the content
 						break;
 					}
 					case "UPDATE": {

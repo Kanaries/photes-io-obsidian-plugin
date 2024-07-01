@@ -134,3 +134,29 @@ export function createQueuedProcessor<T>(
 		}
 	};
 }
+
+export function getTitleAndContentFromMarkdown(markdown: string): {
+	title: string;
+	content: string;
+} {
+	if (!markdown) {
+		return { title: "", content: "" };
+	}
+	const trimed = markdown
+		.replace(/^```(markdown)?[\s\n]*/, "")
+		.replace(/```[\s\n]*$/, "");
+
+	const lines = trimed.split("\n");
+	const title = lines[0].replace(/^#+/, "").trim();
+	const content = lines.slice(1).join("\n").trim();
+	return { title, content };
+}
+
+export function noteToMarkdown(data: {
+	content: string;
+	image_name: string;
+	image_path: string;
+}) {
+	const { title, content } = getTitleAndContentFromMarkdown(data.content);
+	return `# ${title}\n\n![${data.image_name}](${data.image_path}})\n\n${content}`;
+}

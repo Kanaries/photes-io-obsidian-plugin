@@ -203,8 +203,8 @@ export const downloadAssets =
 		await app.vault.createBinary(item.dest, await resp.arrayBuffer(), {});
 	};
 
-export const getNotebookDownloadURL = (notebookID: number) =>
-	`${BASE_URL}/api/plugin/download?id=${notebookID}`;
+export const getNotebookDownloadURL = (notebookID: number, templateNoteID?: number) =>
+	`${BASE_URL}/api/plugin/download?id=${notebookID}${templateNoteID ? `&template=${templateNoteID}` : ""}`;
 
 export async function startSync(
 	accessKey: string,
