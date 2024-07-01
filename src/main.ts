@@ -173,6 +173,9 @@ export default class PhotesIOPlugin extends Plugin {
 		this.registerObsidianProtocolHandler("photes-login", async (params) => {
 			const { token } = params;
 			this.settings.accessToken = token;
+			this.settings.autoSync = true;
+			this.settings.lastSyncedTime = Date.now();
+			this.settings.syncTimestamp = Date.now();
 			await this.saveSettings();
 			this.tab.fetchInfo();
 			this.tab.display();

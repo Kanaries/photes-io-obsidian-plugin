@@ -204,7 +204,7 @@ export const downloadAssets =
 	};
 
 export const getNotebookDownloadURL = (notebookID: number, templateNoteID?: number) =>
-	`${BASE_URL}/api/plugin/download?id=${notebookID}${templateNoteID ? `&template=${templateNoteID}` : ""}`;
+	`${BASE_URL}/api/plugin/download?id=${notebookID}${templateNoteID ? `&note_id=${templateNoteID}` : ""}`;
 
 export async function startSync(
 	accessKey: string,

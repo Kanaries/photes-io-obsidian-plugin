@@ -98,6 +98,28 @@ export class PhotesSettingsTab extends PluginSettingTab {
 			}
 			new Setting(containerEl).setHeading().setName("Sync Settings");
 			new Setting(containerEl)
+				.setName("Enable Auto Sync")
+				.setDesc("Automatically sync notes.")
+				.addToggle((toggle) => {
+					toggle.setValue(this.plugin.settings.autoSync);
+					toggle.onChange(async (value) => {
+						if (value) {
+							this.plugin.settings.autoSync = true;
+							this.plugin.saveSettings();
+							this.plugin.syncInstance = await listenSync(
+								this.plugin.settings.accessToken,
+								this.app,
+								this.plugin
+							);
+						} else {
+							this.plugin.syncInstance?.stop();
+							this.plugin.syncInstance = null;
+							this.plugin.settings.autoSync = false;
+							await this.plugin.saveSettings();
+						}
+					});
+				});
+			new Setting(containerEl)
 				.setName("Sync")
 				.setDesc(
 					this.syncingInfo
@@ -108,6 +130,32 @@ export class PhotesSettingsTab extends PluginSettingTab {
 						  ).toLocaleString()}`
 						: "Not Synced yet"
 				)
+				.addButton((button) => {
+					button.setButtonText("Sync All notes");
+					button.setDisabled(!!this.syncingInfo);
+					button.onClick(async () => {
+						const { lastSyncedTime, syncTimestamp } =
+							await startSync(
+								this.plugin.settings.accessToken,
+								this.app,
+								this.plugin.settings.syncPath ||
+									DEFAULT_SYNC_PATH,
+								(x) => {
+									this.plugin.showSyncStatus(x);
+									this.syncingInfo = x;
+									this.display();
+								},
+								0
+							);
+						this.plugin.settings.lastSyncedTime = lastSyncedTime;
+						this.plugin.settings.syncTimestamp = syncTimestamp;
+						new Notice("Sync Completed");
+						this.plugin.showSyncStatus("");
+						this.syncingInfo = "";
+						this.display();
+						await this.plugin.saveSettings();
+					});
+				})
 				.addButton((button) => {
 					button.setButtonText("Sync");
 					button.setDisabled(!!this.syncingInfo);
@@ -132,130 +180,6 @@ export class PhotesSettingsTab extends PluginSettingTab {
 						this.syncingInfo = "";
 						this.display();
 						await this.plugin.saveSettings();
-					});
-				});
-			new Setting(containerEl)
-				.setName("Enable Auto Sync")
-				.setDesc("Automatically sync notes.")
-				.addToggle((toggle) => {
-					toggle.setValue(this.plugin.settings.autoSync);
-					toggle.onChange(async (value) => {
-						if (value) {
-							if (!this.plugin.settings.syncTimestamp) {
-								// first time to sync
-								const self = this;
-								class FirstTimeAskModal extends Modal {
-									result: "new" | "sync_now" | null = null;
-									onSubmit: (
-										result: "new" | "sync_now" | null
-									) => void;
-
-									constructor(
-										app: App,
-										onSubmit: (
-											result: "new" | "sync_now" | null
-										) => void
-									) {
-										super(app);
-										this.onSubmit = onSubmit;
-									}
-
-									onOpen(): void {
-										const { contentEl } = this;
-										contentEl.createEl("h2", {
-											text: "Do you want to Sync All notebooks now?",
-										});
-										contentEl.createEl("p", {
-											text: "If you choose not to sync all notebooks, only new notes will be synced.",
-										});
-										new Setting(contentEl)
-											.addButton((button) => {
-												button.setButtonText(
-													"Sync New notes only"
-												);
-												button.onClick(async () => {
-													this.result = "new";
-													this.close();
-												});
-											})
-											.addButton((button) => {
-												button.setButtonText(
-													"Sync All"
-												);
-												button.setCta();
-												button.onClick(async () => {
-													this.result = "sync_now";
-													this.close();
-												});
-											});
-									}
-									onClose(): void {
-										this.containerEl.empty();
-										this.onSubmit(this.result);
-									}
-								}
-								new FirstTimeAskModal(
-									this.app,
-									async (result) => {
-										if (result === "sync_now") {
-											if (self.plugin.syncInstance) {
-												self.plugin.syncInstance.stop();
-											}
-											self.plugin.settings.autoSync =
-												true;
-											self.plugin.saveSettings();
-
-											self.plugin.syncInstance =
-												await listenSync(
-													self.plugin.settings
-														.accessToken,
-													self.app,
-													self.plugin
-												);
-											self.plugin.syncInstance.startRefetch();
-											return;
-										} else if (result === "new") {
-											if (self.plugin.syncInstance) {
-												self.plugin.syncInstance.stop();
-											}
-											self.plugin.settings.lastSyncedTime =
-												Date.now();
-											self.plugin.settings.syncTimestamp =
-												Date.now();
-											self.plugin.settings.autoSync =
-												true;
-											self.plugin.saveSettings();
-											self.plugin.syncInstance =
-												await listenSync(
-													self.plugin.settings
-														.accessToken,
-													self.app,
-													self.plugin
-												);
-											return;
-										} else {
-											self.plugin.settings.autoSync =
-												false;
-											self.plugin.saveSettings();
-											self.display();
-										}
-									}
-								).open();
-							} else {
-								this.plugin.settings.autoSync = true;
-								this.plugin.saveSettings();
-								this.plugin.syncInstance = await listenSync(
-									this.plugin.settings.accessToken,
-									this.app,
-									this.plugin
-								);
-							}
-						} else {
-							this.plugin.syncInstance?.stop();
-							this.plugin.syncInstance = null;
-							this.plugin.settings.autoSync = false;
-							await this.plugin.saveSettings();
-						}
 					});
 				});
 		} else {

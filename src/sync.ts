@@ -114,6 +114,66 @@ export async function listenSync(
 		}
 	> = {};
 
+	const updateNotebookRealtime = createQueuedProcessor(
+		async (data: { content: string; note_id: number }) => {
+			if (realtimeNoteMap[data.note_id]) {
+				const item = realtimeNoteMap[data.note_id];
+				const ending = `-${item.notebook_id}.md`;
+				const file =
+					item.file ??
+					(() => {
+						const fileA = app.vault
+							.getFolderByPath(
+								normalizePath(
+									plugin.settings.syncPath ||
+										DEFAULT_SYNC_PATH
+								)
+							)
+							?.children.find((x) => x.name.endsWith(ending));
+						if (fileA) {
+							const file = app.vault.getFileByPath(fileA.path)!;
+							item.file = file;
+							return file;
+						}
+						return null;
+					})();
+				if (!file) {
+					return;
+				}
+				if (!item.template) {
+					try {
+						const resp = await fetch(
+							getNotebookDownloadURL(
+								item.notebook_id,
+								data.note_id
+							),
+							{
+								headers: {
+									"access-key": accessKey,
+								},
+							}
+						);
+						item.template = await resp.text();
+					} catch (e) {
+						console.error(e);
+					}
+				}
+				if (item.template) {
+					const content = item.template.replace(
+						`<!-- place-holder-note-${data.note_id} -->`,
+						noteToMarkdown({
+							content: data.content,
+							image_name: item.image_name,
+							image_path: item.image_path,
+						})
+					);
+					await app.vault.modify(file, content);
+				}
+			}
+		},
+		(x) => x.note_id
+	);
+
 	const channel = client
 		.channel(user_id || "plugin")
 		.on(
@@ -129,62 +189,7 @@ export async function listenSync(
 					version: number;
 					end?: boolean;
 				};
-				if (realtimeNoteMap[data.note_id]) {
-					const item = realtimeNoteMap[data.note_id];
-					const ending = `-${item.notebook_id}.md`;
-					const file =
-						item.file ??
-						(() => {
-							const fileA = app.vault
-								.getFolderByPath(
-									normalizePath(
-										plugin.settings.syncPath ||
-											DEFAULT_SYNC_PATH
-									)
-								)
-								?.children.find((x) => x.name.endsWith(ending));
-							if (fileA) {
-								const file = app.vault.getFileByPath(
-									fileA.path
-								)!;
-								item.file = file;
-								return file;
-							}
-							return null;
-						})();
-					if (!file) {
-						return;
-					}
-					if (!item.template) {
-						try {
-							const resp = await fetch(
-								getNotebookDownloadURL(
-									item.notebook_id,
-									data.note_id
-								),
-								{
-									headers: {
-										"access-key": accessKey,
-									},
-								}
-							);
-							item.template = await resp.text();
-						} catch (e) {
-							console.error(e);
-						}
-					}
-					if (item.template) {
-						const content = item.template.replace(
-							`<!-- place-holder-note-${data.note_id} -->`,
-							noteToMarkdown({
-								content: data.content,
-								image_name: item.image_name,
-								image_path: item.image_path,
-							})
-						);
-						await app.vault.modify(file, content);
-					}
-				}
+				updateNotebookRealtime(data);
 			}
 		)
 		.on(
@@ -247,6 +252,10 @@ export async function listenSync(
 								image_path: `./images/${filename}`,
 								notebook_id: item.notebook_id,
 							};
+							updateNotebookRealtime({
+								content: "",
+								note_id: item.id,
+							});
 						}
 						break;
 					}

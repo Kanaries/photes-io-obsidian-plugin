@@ -158,5 +158,5 @@ export function noteToMarkdown(data: {
 	image_path: string;
 }) {
 	const { title, content } = getTitleAndContentFromMarkdown(data.content);
-	return `# ${title}\n\n![${data.image_name}](${data.image_path}})\n\n${content}`;
+	return `# ${title}\n\n![${data.image_name}](${data.image_path})\n\n${content}`;
 }
