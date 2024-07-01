@@ -176,6 +176,12 @@ export default class PhotesIOPlugin extends Plugin {
 			this.settings.autoSync = true;
 			this.settings.lastSyncedTime = Date.now();
 			this.settings.syncTimestamp = Date.now();
+			this.syncInstance?.stop();
+			this.syncInstance = await listenSync(
+				this.settings.accessToken,
+				this.app,
+				this
+			);
 			await this.saveSettings();
 			this.tab.fetchInfo();
 			this.tab.display();
