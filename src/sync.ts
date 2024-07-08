@@ -25,6 +25,7 @@ interface INotebook {
 	id: number;
 	note_orders: number[] | null;
 	title: string;
+	source: string | null;
 }
 
 interface INote {
@@ -34,6 +35,7 @@ interface INote {
 	id: number;
 	image: { path: string; name: string };
 	notebook_id: number;
+	source: string | null;
 }
 
 export async function listenSync(
@@ -197,6 +199,9 @@ export async function listenSync(
 			{ schema: "public", event: "*", table: "notebooks" },
 			(payload) => {
 				const item = payload.new as INotebook;
+				if (item.source?.toLowerCase() === "obsidian") {
+					return;
+				}
 				switch (payload.eventType) {
 					case "INSERT":
 					case "UPDATE": {
@@ -227,6 +232,9 @@ export async function listenSync(
 			},
 			async (payload) => {
 				const item = payload.new as INote;
+				if (item.source?.toLowerCase() === "obsidian") {
+					return;
+				}
 				switch (payload.eventType) {
 					case "INSERT": {
 						if (item.image) {
