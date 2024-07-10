@@ -194,10 +194,29 @@ export default class PhotesIOPlugin extends Plugin {
 				this
 			);
 		}
+
+		this.registerInterval(
+			window.setInterval(async () => {
+				if (this.syncInstance) {
+					if (this.syncInstance.getLastStatus() !== "SUBSCRIBED") {
+						// try to reconnect
+						this.syncInstance.stop();
+						this.syncInstance = await listenSync(
+							this.settings.accessToken,
+							this.app,
+							this
+						);
+						return;
+					}
+					this.syncInstance.startRefetch();
+				}
+			}, 1000 * 60 * 30)
+		);
 	}
 
 	onunload() {
 		this.syncInstance?.stop();
+		this.syncInstance = null;
 	}
 
 	updateUIItems() {

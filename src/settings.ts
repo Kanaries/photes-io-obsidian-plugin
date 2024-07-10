@@ -47,6 +47,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 						this.plugin.settings.syncTimestamp = 0;
 						this.plugin.settings.autoSync = false;
 						this.plugin.syncInstance?.stop();
+						this.plugin.syncInstance = null;
 						await this.plugin.saveSettings();
 						this.display();
 					});

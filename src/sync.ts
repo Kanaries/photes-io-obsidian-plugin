@@ -45,6 +45,11 @@ export async function listenSync(
 ): Promise<{
 	stop: () => void;
 	startRefetch: () => void;
+	getLastStatus: () =>
+		| "SUBSCRIBED"
+		| "TIMED_OUT"
+		| "CLOSED"
+		| "CHANNEL_ERROR";
 }> {
 	const token = await getSupabaseToken(accessKey);
 	const decoded = jwtDecode(token);
@@ -176,6 +181,9 @@ export async function listenSync(
 		(x) => x.note_id
 	);
 
+	let lastStatus: "SUBSCRIBED" | "TIMED_OUT" | "CLOSED" | "CHANNEL_ERROR" =
+		"CLOSED";
+
 	const channel = client
 		.channel(user_id || "plugin")
 		.on(
@@ -279,6 +287,7 @@ export async function listenSync(
 		)
 		.subscribe((e) => {
 			console.debug("photesio: channel status", e);
+			lastStatus = e;
 			if (e === "SUBSCRIBED" && plugin.settings.syncTimestamp) {
 				startRefetch();
 			}
@@ -289,5 +298,6 @@ export async function listenSync(
 			channel.unsubscribe();
 		},
 		startRefetch,
+		getLastStatus: () => lastStatus,
 	};
 }
