@@ -1,7 +1,7 @@
 {
 	"id": "photes-io-plugin",
 	"name": "Photes.IO Plugin",
-	"version": "0.1.1",
+	"version": "0.2.1",
 	"minAppVersion": "0.15.0",
 	"description": "Turn your images into text notes with AI",
 	"author": "kanaries data inc.",
