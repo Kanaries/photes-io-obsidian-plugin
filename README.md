@@ -3,13 +3,16 @@
 Welcome to the Photes IO Obsidian Plugin! This plugin helps you generate notes from photos, leveraging advanced AI capabilities.
 
 ## Table of Contents
-- [Requirements](#requirements)
-- [Features](#features)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Payment and Credits](#payment-and-credits)
-- [Support and Feedback](#support-and-feedback)
-- [License](#license)
+- [Photes IO Obsidian Plugin](#photes-io-obsidian-plugin)
+  - [Table of Contents](#table-of-contents)
+  - [Requirements](#requirements)
+  - [Features](#features)
+  - [Installation](#installation)
+  - [Usage](#usage)
+  - [Payment and Credits](#payment-and-credits)
+  - [Support and Feedback](#support-and-feedback)
+  - [License](#license)
+  - [Thanks](#thanks)
 
 ## Requirements
 
@@ -57,3 +60,7 @@ If you have any issues, questions, or feedback, please visit our [support page](
 ## License
 2024 Kanaries Data Inc. All rights reserved.
 Please see the [LICENSE](LICENSE) file.
+
+## Thanks
+
+Thank you to them makers of [Image Context Menus](https://github.com/NomarCub/obsidian-copy-url-in-preview), as it was a greate reference for reading image in the markdown.
