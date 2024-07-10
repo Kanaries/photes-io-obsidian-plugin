@@ -526,6 +526,20 @@ export default class PhotesIOPlugin extends Plugin {
 	}
 
 	async addImage(file: File) {
+		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
+
+		if (!view) {
+			// active current file
+			const file = this.app.workspace.getActiveFile();
+			if (!file) return;
+			const leaf = this.app.workspace.getLeaf(false);
+			await leaf.openFile(file);
+			view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!view) {
+				new Notice("Please open a markdown file to add image");
+				return;
+			}
+		}
 		const path = (this.settings.imagePath || "/assets").replace(
 			/[\/]$/,
 			""
@@ -552,7 +566,6 @@ export default class PhotesIOPlugin extends Plugin {
 				await file.arrayBuffer()
 			);
 		}
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (view) {
 			const editorView = view.editor.cm;
 			const cursor = editorView.state.selection.main.to;
