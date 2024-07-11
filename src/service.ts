@@ -153,7 +153,7 @@ export const removeNotebook = async (
 		.getFolderByPath(normalizePath(path))
 		?.children.find((x) => x.name.endsWith(ending));
 	if (file) {
-		await app.vault.delete(file);
+		await app.vault.trash(file, true);
 	}
 };
 
@@ -176,16 +176,19 @@ export const downloadAssets =
 					.getFolderByPath(normalizePath(path))
 					?.children.find((x) => x.name.endsWith(ending));
 				if (file) {
-					if (file.name === filename || filename === `!-${ending}`) {
-						// just edit the existing file
-						await app.vault.modifyBinary(
-							app.vault.getFileByPath(file.path)!,
-							await resp.arrayBuffer()
-						);
-						return;
-					} else {
-						await app.vault.delete(file);
+					let path = file.path;
+					if (
+						!(file.name === filename || filename === `!-${ending}`)
+					) {
+						path = normalizePath(item.dest);
+						await app.vault.rename(file, path);
 					}
+					// just edit the existing file
+					await app.vault.modifyBinary(
+						app.vault.getFileByPath(path)!,
+						await resp.arrayBuffer()
+					);
+					return;
 				}
 			} else if (filename === `!-${ending}`) {
 				// should edit exist file, return if not exist
@@ -203,8 +206,13 @@ export const downloadAssets =
 		await app.vault.createBinary(item.dest, await resp.arrayBuffer(), {});
 	};
 
-export const getNotebookDownloadURL = (notebookID: number, templateNoteID?: number) =>
-	`${BASE_URL}/api/plugin/download?id=${notebookID}${templateNoteID ? `&note_id=${templateNoteID}` : ""}`;
+export const getNotebookDownloadURL = (
+	notebookID: number,
+	templateNoteID?: number
+) =>
+	`${BASE_URL}/api/plugin/download?id=${notebookID}${
+		templateNoteID ? `&note_id=${templateNoteID}` : ""
+	}`;
 
 export async function startSync(
 	accessKey: string,

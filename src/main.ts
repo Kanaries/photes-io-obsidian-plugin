@@ -19,7 +19,7 @@ import { Extension } from "@codemirror/state";
 import { listenSync } from "./sync";
 import PhotesQRModal from "./qr";
 
-interface MyPluginSettings {
+interface PhotesIOPluginSettings {
 	accessToken: string;
 	imagePath: string;
 	syncPath: string;
@@ -28,7 +28,7 @@ interface MyPluginSettings {
 	syncTimestamp: number;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
+const DEFAULT_SETTINGS: PhotesIOPluginSettings = {
 	accessToken: "",
 	imagePath: "",
 	syncPath: "",
@@ -38,7 +38,7 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 };
 
 export default class PhotesIOPlugin extends Plugin {
-	settings: MyPluginSettings;
+	settings: PhotesIOPluginSettings;
 	longTapTimeoutId?: number;
 	shouldOpenModal: boolean = false;
 	openModal?: () => void;
