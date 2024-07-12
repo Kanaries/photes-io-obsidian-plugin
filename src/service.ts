@@ -22,17 +22,12 @@ export async function getInfo(accessKey: string) {
 		throw new Error("Sorry, something went wrong. Please try again.");
 	}
 	if (!isOK(response)) {
-		let result;
-		try {
-			result = await response.json();
-		} catch (e) {
-			throw new Error("Sorry, something went wrong. Please try again.");
-		}
-		if (result) {
-			throw new Error(result.message);
-		}
+		throw new Error(
+			response.json?.message ??
+				"Sorry, something went wrong. Please try again."
+		);
 	}
-	return await response.json();
+	return response.json;
 }
 
 async function putBlob(
@@ -142,7 +137,7 @@ export async function getDownloadList(
 		},
 	});
 	if (isOK(resp)) {
-		return resp.json();
+		return resp.json;
 	} else {
 		throw new Error("Sorry, something went wrong. Please try again.");
 	}
