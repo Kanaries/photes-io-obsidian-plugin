@@ -1,13 +1,14 @@
 import { WidgetType } from "@codemirror/view";
-import createLoaderIcon from "../assets/loader";
+import { setIcon } from "obsidian";
 
 export class LoadingPhotesWidget extends WidgetType {
 	toDOM() {
 		const div = document.createElement("div");
 		div.className = "photes-button disabled";
-		const icon = createLoaderIcon();
-		icon.setAttribute("class", "loading-icon");
-		div.appendChild(icon);
+		const iconContainer = document.createElement("div");
+		iconContainer.setAttribute("class", "loading-icon");
+		setIcon(iconContainer, "loader-2");
+		div.appendChild(iconContainer);
 		return div;
 	}
 	ignoreEvent(): boolean {

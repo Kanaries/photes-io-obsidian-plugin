@@ -7,6 +7,7 @@ import {
 	Notice,
 	Plugin,
 	Setting,
+	addIcon,
 	normalizePath,
 } from "obsidian";
 import { EditorView, ViewPlugin } from "@codemirror/view";
@@ -51,6 +52,9 @@ export default class PhotesIOPlugin extends Plugin {
 	private editorExtension: Extension[] = [];
 
 	async onload() {
+
+		addIcon("photes", `<g clip-path="url(#clip0_1_14)"><path x="19.569" y="19.569" width="260.66" height="260.66" rx="30.431" stroke="currentColor" stroke-width="13.046" d="M16.667 6.523H83.266A10.144 10.144 0 0 1 93.41 16.667V83.266A10.144 10.144 0 0 1 83.266 93.41H16.667A10.144 10.144 0 0 1 6.523 83.266V16.667A10.144 10.144 0 0 1 16.667 6.523z"/><path d="M50.05 87.413V36.989h18.909q5.811 0 9.75 2.167 3.964 2.167 5.983 5.958 2.043 3.767 2.044 8.568 0 4.85 -2.044 8.617 -2.043 3.767 -6.032 5.934 -3.989 2.142 -9.824 2.142H56.303v-7.509h11.301q3.398 0 5.564 -1.182t3.201 -3.25q1.059 -2.069 1.059 -4.752 0 -2.684 -1.059 -4.727 -1.034 -2.043 -3.225 -3.176 -2.167 -1.157 -5.589 -1.157h-8.371v42.792z" fill="currentColor"/></g><defs><clipPath id="clip0_1_14"><path d="M0 0h100v100H0z"/></clipPath></defs>`);
+
 		await this.loadSettings();
 		this.registerDocument(document);
 		this.app.workspace.on("window-open", (_workspaceWindow, window) => {
@@ -85,7 +89,7 @@ export default class PhotesIOPlugin extends Plugin {
 					const menu = new Menu();
 					menu.addItem((item) =>
 						item
-							.setTitle("From Camera")
+							.setTitle("From camera")
 							.setIcon("camera")
 							.onClick(() => {
 								pickFile((filePicker) => {
@@ -95,7 +99,7 @@ export default class PhotesIOPlugin extends Plugin {
 					);
 					menu.addItem((item) =>
 						item
-							.setTitle("From Gallery")
+							.setTitle("From gallery")
 							.setIcon("book-image")
 							.onClick(() => {
 								pickFile();
@@ -108,7 +112,7 @@ export default class PhotesIOPlugin extends Plugin {
 					const menu = new Menu();
 					menu.addItem((item) =>
 						item
-							.setTitle("Generate Note from Smartphone")
+							.setTitle("Generate note from smartphone")
 							.setIcon("monitor-smartphone")
 							.onClick(() => {
 								new PhotesQRModal(this.app, this).open();
@@ -116,7 +120,7 @@ export default class PhotesIOPlugin extends Plugin {
 					);
 					menu.addItem((item) =>
 						item
-							.setTitle("Generate Note from Image")
+							.setTitle("Generate note from image")
 							.setIcon("book-image")
 							.onClick(() => {
 								pickFile();
@@ -132,8 +136,8 @@ export default class PhotesIOPlugin extends Plugin {
 		this.addSettingTab(this.tab);
 
 		this.addCommand({
-			id: "photes-sync-notes",
-			name: "Sync Notes",
+			id: "sync-notes",
+			name: "Sync notes",
 			callback: () => {
 				if (!this.settings.accessToken) {
 					new Notice("Please login to use this feature");
@@ -153,7 +157,7 @@ export default class PhotesIOPlugin extends Plugin {
 				).then(({ lastSyncedTime, syncTimestamp }) => {
 					this.settings.lastSyncedTime = lastSyncedTime;
 					this.settings.syncTimestamp = syncTimestamp;
-					new Notice("Sync Completed");
+					new Notice("Sync completed");
 					this.showSyncStatus("");
 					this.tab.syncingInfo = "";
 					this.tab.display();
@@ -163,8 +167,8 @@ export default class PhotesIOPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "photes-upload-from-mobile",
-			name: "Upload Image from Mobile",
+			id: "upload-from-mobile",
+			name: "Upload image from mobile",
 			callback: () => {
 				new PhotesQRModal(this.app, this).open();
 			},
@@ -227,23 +231,23 @@ export default class PhotesIOPlugin extends Plugin {
 			}
 			this.statusBarItem.show();
 			if (this.uploading) {
-				this.statusBarItem.setText(`Photes: Uploading Image...`);
+				this.statusBarItem.setText(`Photes: Uploading image...`);
 			} else {
-				this.statusBarItem.setText("Photes: Generating Note...");
+				this.statusBarItem.setText("Photes: Generating note...");
 			}
 
 			if (this.modalButtonItem) {
 				this.modalButtonItem.setDisabled(true);
 				if (this.uploading) {
-					this.modalButtonItem.setButtonText("Uploading Image...");
+					this.modalButtonItem.setButtonText("Uploading image...");
 				} else {
-					this.modalButtonItem.setButtonText("Generating Note...");
+					this.modalButtonItem.setButtonText("Generating note...");
 				}
 			} else if (Platform.isMobile) {
 				if (this.uploading) {
-					new Notice("Photes: Uploading Image...");
+					new Notice("Photes: Uploading image...");
 				} else {
-					new Notice("Photes: Generating Note...");
+					new Notice("Photes: Generating note...");
 				}
 			}
 		} else {
@@ -252,7 +256,7 @@ export default class PhotesIOPlugin extends Plugin {
 			}
 			if (this.modalButtonItem) {
 				this.modalButtonItem.setDisabled(false);
-				this.modalButtonItem.setButtonText("Generate Note");
+				this.modalButtonItem.setButtonText("Generate note");
 			}
 		}
 	}
@@ -307,7 +311,7 @@ export default class PhotesIOPlugin extends Plugin {
 						);
 						if (!src) {
 							new Notice(
-								"There's something wrong when getting the image. You can try right-click on the image to resolve this. Please Report this problem to PhotesIO."
+								"There's something wrong when getting the image. You can try right-click on the image to resolve this. Please report this problem to photes.io."
 							);
 							return;
 						}
@@ -326,7 +330,7 @@ export default class PhotesIOPlugin extends Plugin {
 							);
 						} else {
 							new Notice(
-								"There's something wrong when getting the image. You can try right-click on the image to resolve this. Please Report this problem to PhotesIO."
+								"There's something wrong when getting the image. You can try right-click on the image to resolve this. Please report this problem to photes.io."
 							);
 						}
 					}
@@ -408,7 +412,7 @@ export default class PhotesIOPlugin extends Plugin {
 								if (!self.settings.accessToken) {
 									new Setting(contentEl).addButton((btn) => {
 										btn.setButtonText(
-											"Login to Generate Note"
+											"Login to generate notes"
 										)
 											.setCta()
 											.onClick(() => {
@@ -418,7 +422,7 @@ export default class PhotesIOPlugin extends Plugin {
 									});
 								} else {
 									new Setting(contentEl).addButton((btn) => {
-										btn.setButtonText("Generate Note")
+										btn.setButtonText("Generate note")
 											.setCta()
 											.onClick(async () => {
 												if (
@@ -478,7 +482,7 @@ export default class PhotesIOPlugin extends Plugin {
 
 	async openSetting() {
 		await this.app.setting.open();
-		this.app.setting.openTabById("photes-io-obsidian-plugin");
+		this.app.setting.openTabById("image-notes-photes-io");
 	}
 
 	async onImageContextMenu(event: MouseEvent, img: HTMLImageElement) {
@@ -487,7 +491,7 @@ export default class PhotesIOPlugin extends Plugin {
 			if (!this.settings.accessToken) {
 				const menu = new Menu();
 				menu.addItem((item) => {
-					item.setTitle("Login to Generate Note");
+					item.setTitle("Login to generate notes");
 					item.setIcon("lock");
 					item.onClick(() => {
 						this.openSetting();
@@ -499,7 +503,7 @@ export default class PhotesIOPlugin extends Plugin {
 			if (this.processing) {
 				const menu = new Menu();
 				menu.addItem((item) => {
-					item.setTitle("Generating Note...");
+					item.setTitle("Generating note...");
 					item.setIcon("sync");
 					item.setDisabled(true);
 				});
@@ -510,7 +514,7 @@ export default class PhotesIOPlugin extends Plugin {
 			const menu = new Menu();
 			menu.addItem((item) => {
 				item.setIcon("sticky-note");
-				item.setTitle("Generate Note");
+				item.setTitle("Generate note");
 				item.onClick(async () => {
 					if (!this.settings.accessToken) {
 						new Notice("Please login to use this feature");
@@ -615,7 +619,7 @@ export default class PhotesIOPlugin extends Plugin {
 				}
 			);
 		} catch (e) {
-			new Notice(`Generate Notes Failed. ${e}`);
+			new Notice(`Generate notes failed. ${e}`);
 		} finally {
 			this.processing = false;
 			this.updateEditorExtension();

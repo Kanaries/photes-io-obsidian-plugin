@@ -1,14 +1,19 @@
-import { App, normalizePath } from "obsidian";
+import { App, normalizePath, requestUrl, RequestUrlResponse } from "obsidian";
 import { loadImageBlob, retry } from "./helpers";
 import { upload } from "@vercel/blob/client";
 import pLimit from "p-limit";
 
 const BASE_URL = "https://photes.io";
 
+const isOK = (response: RequestUrlResponse) => {
+	return response.status >= 200 && response.status < 300;
+};
+
 export async function getInfo(accessKey: string) {
-	let response: Response;
+	let response: RequestUrlResponse;
 	try {
-		response = await fetch(`${BASE_URL}/api/plugin/info`, {
+		response = await requestUrl({
+			url: `${BASE_URL}/api/plugin/info`,
 			headers: {
 				"access-key": accessKey,
 			},
@@ -16,7 +21,7 @@ export async function getInfo(accessKey: string) {
 	} catch (e) {
 		throw new Error("Sorry, something went wrong. Please try again.");
 	}
-	if (!response.ok) {
+	if (!isOK(response)) {
 		let result;
 		try {
 			result = await response.json();
@@ -76,6 +81,8 @@ export async function getNote(
 	}
 	let noteResp: Response;
 	try {
+		// We need to use fetch instead of requestUrl because we need recieve a readable stream
+		// CORS will be handled by the server
 		noteResp = await fetch(`${BASE_URL}/api/plugin/make_note`, {
 			method: "POST",
 			body: formData,
@@ -128,15 +135,13 @@ export async function getDownloadList(
 		markdowns: { url: string; name: string }[];
 	};
 }> {
-	const resp = await fetch(
-		`${BASE_URL}/api/plugin/list?timestamp=${fromTimestamp ?? 0}`,
-		{
-			headers: {
-				"access-key": accessKey,
-			},
-		}
-	);
-	if (resp.ok) {
+	const resp = await requestUrl({
+		url: `${BASE_URL}/api/plugin/list?timestamp=${fromTimestamp ?? 0}`,
+		headers: {
+			"access-key": accessKey,
+		},
+	});
+	if (isOK(resp)) {
 		return resp.json();
 	} else {
 		throw new Error("Sorry, something went wrong. Please try again.");
@@ -160,7 +165,8 @@ export const removeNotebook = async (
 export const downloadAssets =
 	(app: App, accessKey: string, path: string) =>
 	async (item: { url: string; dest: string; needAuth?: boolean }) => {
-		const resp = await fetch(item.url, {
+		const resp = await requestUrl({
+			url: item.url,
 			headers: item.needAuth
 				? {
 						"access-key": accessKey,
@@ -186,7 +192,7 @@ export const downloadAssets =
 					// just edit the existing file
 					await app.vault.modifyBinary(
 						app.vault.getFileByPath(path)!,
-						await resp.arrayBuffer()
+						resp.arrayBuffer
 					);
 					return;
 				}
@@ -203,7 +209,7 @@ export const downloadAssets =
 				return;
 			}
 		}
-		await app.vault.createBinary(item.dest, await resp.arrayBuffer(), {});
+		await app.vault.createBinary(item.dest, resp.arrayBuffer, {});
 	};
 
 export const getNotebookDownloadURL = (
@@ -283,9 +289,9 @@ export async function startSync(
 	);
 	await Promise.all(promises);
 	if (failed > 0) {
-		onReport?.(`Sync Completed with ${failed} failed downloads`);
+		onReport?.(`Sync completed with ${failed} failed downloads`);
 	} else {
-		onReport?.(`Sync Completed`);
+		onReport?.(`Sync completed`);
 	}
 
 	return {
@@ -295,26 +301,28 @@ export async function startSync(
 }
 
 export async function getSupabaseToken(accessKey: string) {
-	const resp = await fetch(`${BASE_URL}/api/plugin/auth`, {
+	const resp = await requestUrl({
+		url: `${BASE_URL}/api/plugin/auth`,
 		headers: {
 			"access-key": accessKey,
 		},
 	});
-	if (resp.ok) {
-		return resp.text();
+	if (isOK(resp)) {
+		return resp.text;
 	} else {
 		throw new Error("Sorry, something went wrong. Please try again.");
 	}
 }
 
 export async function getQRCodeURL(accessKey: string) {
-	const resp = await fetch(`${BASE_URL}/api/plugin/quick_login`, {
+	const resp = await requestUrl({
+		url: `${BASE_URL}/api/plugin/quick_login`,
 		headers: {
 			"access-key": accessKey,
 		},
 	});
-	if (resp.ok) {
-		return resp.text();
+	if (isOK(resp)) {
+		return resp.text;
 	} else {
 		throw new Error("Sorry, something went wrong. Please try again.");
 	}

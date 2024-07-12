@@ -37,7 +37,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 			new Setting(containerEl)
 				.setName("Logout")
 				.setDesc(
-					"Logout from your Photes account. This operation will also remove the sync info."
+					"Logout from your photes account. This operation will also remove the sync info."
 				)
 				.addButton((button) => {
 					button.setButtonText("Logout");
@@ -56,7 +56,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 			if (!this.info) {
 				if (this.error) {
 					new Setting(containerEl)
-						.setName("An Error Occurred")
+						.setName("An error occurred")
 						.setDesc(this.error)
 						.addButton((button) => {
 							button.setButtonText("Retry");
@@ -97,9 +97,9 @@ export class PhotesSettingsTab extends PluginSettingTab {
 					text: `Usage: ${usage[0]} / ${usage[1]}`,
 				});
 			}
-			new Setting(containerEl).setHeading().setName("Sync Settings");
+			new Setting(containerEl).setHeading().setName("Sync");
 			new Setting(containerEl)
-				.setName("Enable Auto Sync")
+				.setName("Enable auto sync")
 				.setDesc("Automatically sync notes.")
 				.addToggle((toggle) => {
 					toggle.setValue(this.plugin.settings.autoSync);
@@ -126,13 +126,13 @@ export class PhotesSettingsTab extends PluginSettingTab {
 					this.syncingInfo
 						? this.syncingInfo
 						: this.plugin.settings.lastSyncedTime
-						? `Last Synced time: ${new Date(
+						? `Last synced time: ${new Date(
 								this.plugin.settings.lastSyncedTime
 						  ).toLocaleString()}`
-						: "Not Synced yet"
+						: "Not synced yet"
 				)
 				.addButton((button) => {
-					button.setButtonText("Sync All notes");
+					button.setButtonText("Sync all notes");
 					button.setDisabled(!!this.syncingInfo);
 					button.onClick(async () => {
 						const { lastSyncedTime, syncTimestamp } =
@@ -150,7 +150,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 							);
 						this.plugin.settings.lastSyncedTime = lastSyncedTime;
 						this.plugin.settings.syncTimestamp = syncTimestamp;
-						new Notice("Sync Completed");
+						new Notice("Sync completed");
 						this.plugin.showSyncStatus("");
 						this.syncingInfo = "";
 						this.display();
@@ -176,7 +176,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 							);
 						this.plugin.settings.lastSyncedTime = lastSyncedTime;
 						this.plugin.settings.syncTimestamp = syncTimestamp;
-						new Notice("Sync Completed");
+						new Notice("Sync completed");
 						this.plugin.showSyncStatus("");
 						this.syncingInfo = "";
 						this.display();
@@ -186,7 +186,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 		} else {
 			new Setting(containerEl)
 				.setName("Login")
-				.setDesc("Login to your Photes account to use the feature")
+				.setDesc("Login to your photes account to use the feature")
 				.addButton((button) => {
 					button.setButtonText("Login");
 					button.onClick(async () => {
@@ -194,9 +194,9 @@ export class PhotesSettingsTab extends PluginSettingTab {
 					});
 				});
 		}
-		new Setting(containerEl).setName("Path Settings").setHeading();
+		new Setting(containerEl).setName("Path").setHeading();
 		new Setting(containerEl)
-			.setName("Sync Path")
+			.setName("Sync path")
 			.setDesc(
 				"The path to save synced notes. Edit it will only affect new files."
 			)
@@ -210,7 +210,7 @@ export class PhotesSettingsTab extends PluginSettingTab {
 			});
 		new Setting(containerEl)
 			.setName("Image path")
-			.setDesc("The path to save the image adding via Ribbon action.")
+			.setDesc("The path to save the image added with ribbon action.")
 			.addText((text) => {
 				text.setPlaceholder("/assets");
 				text.setValue(this.plugin.settings.imagePath);

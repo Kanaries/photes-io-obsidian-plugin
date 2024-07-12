@@ -25,11 +25,20 @@ If your plugin does not need CSS, delete this file.
 .photes-icon {
 	width: 1em;
 	height: 1em;
+	--icon-size: 1em;
+	background: #fff;
+	display: flex;
+}
+
+.photes {
+	fill: none;
 }
 
 .loading-icon {
 	width: 1em;
 	height: 1em;
+	--icon-size: 1em;
+	display: flex;
 	animation: spin 1s linear infinite;
 }
 @keyframes spin {

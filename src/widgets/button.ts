@@ -1,5 +1,5 @@
 import { WidgetType } from "@codemirror/view";
-import createPhotesIcon from "../assets/photes";
+import { setIcon } from "obsidian";
 
 export class PhotesWidget extends WidgetType {
 	src: string;
@@ -13,9 +13,10 @@ export class PhotesWidget extends WidgetType {
 		const div = document.createElement("div");
 		div.className = "photes-button";
 		div.setAttribute("data-src", this.src);
-		const icon = createPhotesIcon();
-		icon.setAttribute("class", "photes-icon");
-		div.appendChild(icon);
+		const iconContainer = document.createElement("div");
+		iconContainer.setAttribute("class", "photes-icon");
+		setIcon(iconContainer, "photes");
+		div.appendChild(iconContainer);
 		return div;
 	}
 

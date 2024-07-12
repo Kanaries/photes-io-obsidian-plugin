@@ -47,7 +47,7 @@ export default class PhotesQRModal extends Modal {
 		};
 		setQR();
 		new Setting(contentEl).addButton((button) => {
-			button.setButtonText("Refresh QR Code");
+			button.setButtonText("Refresh QR code");
 			button.onClick(() => {
 				setQR();
 			});
