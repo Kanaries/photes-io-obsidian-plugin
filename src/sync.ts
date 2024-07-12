@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath } from "obsidian";
+import { App, TFile, normalizePath, requestUrl } from "obsidian";
 import {
 	downloadAssets,
 	getNotebookDownloadURL,
@@ -149,18 +149,16 @@ export async function listenSync(
 				}
 				if (!item.template) {
 					try {
-						const resp = await fetch(
-							getNotebookDownloadURL(
+						const resp = await requestUrl({
+							url: getNotebookDownloadURL(
 								item.notebook_id,
 								data.note_id
 							),
-							{
-								headers: {
-									"access-key": accessKey,
-								},
-							}
-						);
-						item.template = await resp.text();
+							headers: {
+								"access-key": accessKey,
+							},
+						});
+						item.template = resp.text;
 					} catch (e) {
 						console.error(e);
 					}
