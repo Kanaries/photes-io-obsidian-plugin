@@ -1,5 +1,3 @@
-import { requestUrl } from "obsidian";
-
 export function withTimeout<T>(ms: number, promise: Promise<T>): Promise<T> {
 	const timeout = new Promise((_resolve, reject) => {
 		const id = setTimeout(() => {
@@ -61,20 +59,7 @@ export async function loadImageBlob(imgSrc: string): Promise<Blob> {
 				});
 			};
 			image.onerror = async () => {
-				try {
-					await requestUrl(image.src);
-
-					// console.log("possible CORS violation, falling back to allOrigins proxy");
-					// https://github.com/gnuns/allOrigins
-					const blob = await loadImageBlob(
-						`https://api.allorigins.win/raw?url=${encodeURIComponent(
-							imgSrc
-						)}`
-					);
-					resolve(blob);
-				} catch {
-					reject();
-				}
+				reject();
 			};
 			image.src = imgSrc;
 		});
