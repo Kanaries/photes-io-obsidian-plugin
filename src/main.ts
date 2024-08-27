@@ -52,8 +52,10 @@ export default class PhotesIOPlugin extends Plugin {
 	private editorExtension: Extension[] = [];
 
 	async onload() {
-
-		addIcon("photes", `<g clip-path="url(#clip0_1_14)"><path x="19.569" y="19.569" width="260.66" height="260.66" rx="30.431" stroke="currentColor" stroke-width="13.046" d="M16.667 6.523H83.266A10.144 10.144 0 0 1 93.41 16.667V83.266A10.144 10.144 0 0 1 83.266 93.41H16.667A10.144 10.144 0 0 1 6.523 83.266V16.667A10.144 10.144 0 0 1 16.667 6.523z"/><path d="M50.05 87.413V36.989h18.909q5.811 0 9.75 2.167 3.964 2.167 5.983 5.958 2.043 3.767 2.044 8.568 0 4.85 -2.044 8.617 -2.043 3.767 -6.032 5.934 -3.989 2.142 -9.824 2.142H56.303v-7.509h11.301q3.398 0 5.564 -1.182t3.201 -3.25q1.059 -2.069 1.059 -4.752 0 -2.684 -1.059 -4.727 -1.034 -2.043 -3.225 -3.176 -2.167 -1.157 -5.589 -1.157h-8.371v42.792z" fill="currentColor"/></g><defs><clipPath id="clip0_1_14"><path d="M0 0h100v100H0z"/></clipPath></defs>`);
+		addIcon(
+			"photes",
+			`<g clip-path="url(#clip0_1_14)"><path x="19.569" y="19.569" width="260.66" height="260.66" rx="30.431" stroke="currentColor" stroke-width="13.046" d="M16.667 6.523H83.266A10.144 10.144 0 0 1 93.41 16.667V83.266A10.144 10.144 0 0 1 83.266 93.41H16.667A10.144 10.144 0 0 1 6.523 83.266V16.667A10.144 10.144 0 0 1 16.667 6.523z"/><path d="M50.05 87.413V36.989h18.909q5.811 0 9.75 2.167 3.964 2.167 5.983 5.958 2.043 3.767 2.044 8.568 0 4.85 -2.044 8.617 -2.043 3.767 -6.032 5.934 -3.989 2.142 -9.824 2.142H56.303v-7.509h11.301q3.398 0 5.564 -1.182t3.201 -3.25q1.059 -2.069 1.059 -4.752 0 -2.684 -1.059 -4.727 -1.034 -2.043 -3.225 -3.176 -2.167 -1.157 -5.589 -1.157h-8.371v42.792z" fill="currentColor"/></g><defs><clipPath id="clip0_1_14"><path d="M0 0h100v100H0z"/></clipPath></defs>`
+		);
 
 		await this.loadSettings();
 		this.registerDocument(document);
@@ -71,9 +73,33 @@ export default class PhotesIOPlugin extends Plugin {
 					this.openSetting();
 					return;
 				}
-				const pickFile = (
+				const pickFile = async (
 					inject?: (input: HTMLInputElement) => void
 				) => {
+					let view =
+						this.app.workspace.getActiveViewOfType(MarkdownView);
+					if (!view) {
+						// active current file
+						const file = this.app.workspace.getActiveFile();
+						if (!file) {
+							new Notice(
+								"Please open a markdown file to add image"
+							);
+							return;
+						}
+						const leaf = this.app.workspace.getLeaf(false);
+						await leaf.openFile(file);
+						view =
+							this.app.workspace.getActiveViewOfType(
+								MarkdownView
+							);
+						if (!view) {
+							new Notice(
+								"Please open a markdown file to add image"
+							);
+							return;
+						}
+					}
 					const filePicker = createEl("input", {});
 					filePicker.accept = "image/*";
 					filePicker.type = "file";
@@ -81,7 +107,7 @@ export default class PhotesIOPlugin extends Plugin {
 					filePicker.onchange = () => {
 						if (!filePicker.files?.length) return;
 						const selectedFile = filePicker.files[0];
-						this.addImage(selectedFile);
+						this.addImage(selectedFile, view!);
 					};
 					filePicker.click();
 				};
@@ -529,21 +555,7 @@ export default class PhotesIOPlugin extends Plugin {
 		}
 	}
 
-	async addImage(file: File) {
-		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
-
-		if (!view) {
-			// active current file
-			const file = this.app.workspace.getActiveFile();
-			if (!file) return;
-			const leaf = this.app.workspace.getLeaf(false);
-			await leaf.openFile(file);
-			view = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!view) {
-				new Notice("Please open a markdown file to add image");
-				return;
-			}
-		}
+	async addImage(file: File, view: MarkdownView) {
 		const path = (this.settings.imagePath || "/assets").replace(
 			/[\/]$/,
 			""
@@ -570,19 +582,17 @@ export default class PhotesIOPlugin extends Plugin {
 				await file.arrayBuffer()
 			);
 		}
-		if (view) {
-			const editorView = view.editor.cm;
-			const cursor = editorView.state.selection.main.to;
-			const imageText = `\n![[${filePath}]]\n`;
-			editorView.dispatch({
-				changes: {
-					from: cursor,
-					to: cursor,
-					insert: imageText,
-				},
-			});
-			this.addNote(file, cursor + imageText.length, editorView);
-		}
+		const editorView = view.editor.cm;
+		const cursor = editorView.state.selection.main.to;
+		const imageText = `\n![[${filePath}]]\n`;
+		editorView.dispatch({
+			changes: {
+				from: cursor,
+				to: cursor,
+				insert: imageText,
+			},
+		});
+		this.addNote(file, cursor + imageText.length, editorView);
 	}
 
 	async addNote(image: string | Blob, pos: number, view: EditorView) {
