@@ -10,7 +10,8 @@ const obsidianShim = {
 		builder.onLoad({ filter: /^obsidian$/, namespace: "test" }, () => ({
 			contents: `
 				export class TFolder {}
-				export class Plugin {}
+				export class Plugin { addRibbonIcon() {} addCommand() {} }
+                export class Notice { hide() {} }
 				export class PluginSettingTab {}
 				export class Setting {}
 				export const normalizePath = path => path;
@@ -73,7 +74,7 @@ test("retries an oversized download page with a smaller limit and preserves curs
 			? success({ notebook, notes: [{ id: 13, content: "First" }], next_after: 13 })
 			: success({ notebook, notes: [{ id: 19, content: "Second" }], next_after: null });
 	});
-	assert.deepEqual(await client.download(key, 12), { ...notebook, notes: ["First", "Second"] });
+	assert.deepEqual(await client.download(key, 12), { ...notebook, notes: ["First", "Second"], imageNoteIds: [] });
 	assert.deepEqual(requests, [[null, "10"], [null, "5"], ["13", "5"]]);
 });
 
@@ -149,7 +150,7 @@ function pluginHarness(responses, { previous, secret, existingPaths = [] } = {})
 		plugin.beginLogin();
 		assert.equal(opened.origin, "https://photes.io");
 		assert.equal(opened.pathname, "/plugin/obsidian/authorize");
-		assert.deepEqual([...opened.searchParams.keys()], ["state", "code_challenge", "code_challenge_method"]);
+		assert.deepEqual([...opened.searchParams.keys()], ["state", "code_challenge", "code_challenge_method", "scope"]);
 		assert.equal(opened.searchParams.get("code_challenge_method"), "S256");
 		return { action: "pixno-auth", code, state: opened.searchParams.get("state") };
 	}
@@ -378,4 +379,56 @@ test("late save-failure cleanup leaves a different login's credential intact", a
 	const revocations = h.requests.filter(request => request.url.endsWith("/logout"));
 	assert.ok(revocations.length > 0);
 	assert.ok(revocations.every(request => JSON.parse(request.body).refresh_token === firstRefresh));
+});
+
+
+test("source-image download keeps bearer on Pixno and detects image associations", async () => {
+ const calls = [];
+ const bytes = new Uint8Array([137,80,78,71,13,10,26,10]).buffer;
+ const client = createPixnoReadClient(async request => {
+  calls.push(request);
+  if (request.url.includes("/download")) return success({ notebook, notes: [{ id: 13, content: "Image note", has_image: true }], next_after: null });
+  if (request.url.includes("/v2/image")) return success({ url: "https://storage.example/storage/v1/object/sign/images/owner/image.png?token=short" });
+  assert.deepEqual(request.headers, {});
+  return { status: 200, json: null, arrayBuffer: bytes };
+ });
+ assert.deepEqual((await client.download(key, 12)).imageNoteIds, [13]);
+ assert.equal(await client.image(key, 13), bytes);
+ assert.equal(calls[1].headers.Authorization, `Bearer ${key}`);
+});
+
+test("generation is not retried and preserves permission errors", async () => {
+ let calls = 0;
+ const client = createPixnoReadClient(async request => {
+  calls++;
+  assert.equal(request.method, "POST");
+  assert.equal(request.headers["Content-Type"], "image/png");
+  return { status: 403, json: { error: "image_permission_required" } };
+ });
+ await assert.rejects(client.generate(key, new ArrayBuffer(8), "image/png"), error => error.code === "image_permission_required");
+ assert.equal(calls, 1);
+});
+
+test("imports image bytes as vault attachments and embeds them in the notebook", async () => {
+ const h = pluginHarness([minted()]); await h.plugin.onload(); await h.callback(h.start());
+ const bytes = new Uint8Array([137,80,78,71,13,10,26,10]).buffer;
+ const assets = [];
+ h.plugin.client = { download: async () => ({ ...notebook, notes: ["Photo text"], imageNoteIds: [13] }), image: async () => bytes };
+ h.plugin.app.vault.createBinary = async (path, data) => { assets.push({ path, data }); return { path }; };
+ await h.plugin.importNotebook(12);
+ assert.equal(assets.length, 1); assert.equal(assets[0].data, bytes);
+ assert.match(assets[0].path, /^Pixno Imports\/notebook-12-images-[a-f0-9-]+\/note-13.png$/);
+ assert.ok(h.created[0].value.includes(`![[${assets[0].path}]]`));
+});
+
+test("an interrupted image download does not save an incomplete notebook or attachments", async () => {
+ const h = pluginHarness([minted()]); await h.plugin.onload(); await h.callback(h.start());
+ let calls = 0; const assets = [];
+ h.plugin.client = { download: async () => ({ ...notebook, notes: ["Photo text"], imageNoteIds: [13,14] }), image: async () => {
+  if (++calls === 2) throw new PixnoError(503);
+  return new Uint8Array([137,80,78,71,13,10,26,10]).buffer;
+ } };
+ h.plugin.app.vault.createBinary = async (...args) => assets.push(args);
+ await assert.rejects(h.plugin.importNotebook(12), { status: 503 });
+ assert.equal(assets.length, 0); assert.equal(h.created.length, 0);
 });

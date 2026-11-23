@@ -7,7 +7,8 @@ function message(error: unknown) {
 		case 401: return "Your Pixno session has expired. Log in again.";
 		case 404: return "This notebook is no longer available.";
 		case 409: return "An import already exists at this path. Move it before importing another copy.";
-		case 413: return "This notebook or list is too large for the plugin to import.";
+		case 415: return "A source image has an unsupported format.";
+        case 413: return "This notebook or list is too large for the plugin to import.";
 		case 429: return "Pixno is limiting requests. Wait a minute and try again.";
 		case 503: return "Pixno plugin access is temporarily unavailable.";
 		default: return "Pixno could not complete the request. Try again.";
@@ -51,7 +52,7 @@ export class PixnoSettingsTab extends PluginSettingTab {
 	display() {
 		const { containerEl } = this;
 		containerEl.empty();
-		containerEl.createEl("p", { text: "Import Pixno notebooks as Markdown. Each import creates a new file in Pixno Imports." });
+		containerEl.createEl("p", { text: "Import Pixno notebooks with source images. Each import creates a new file in Pixno Imports." });
 
 		if (!this.plugin.hasSession || this.plugin.needsLogin || this.plugin.waiting) {
 			new Setting(containerEl)
@@ -88,7 +89,7 @@ export class PixnoSettingsTab extends PluginSettingTab {
 							this.selection = Number(value);
 						});
 					})
-					.addButton(button => button.setButtonText("Import Markdown").setDisabled(this.busy).onClick(() => this.run(async () => {
+					.addButton(button => button.setButtonText("Import notes and images").setDisabled(this.busy).onClick(() => this.run(async () => {
 						if (this.selection === undefined) return;
 						const path = await this.plugin.importNotebook(this.selection);
 						this.status = `Imported ${path}.`;
@@ -96,6 +97,9 @@ export class PixnoSettingsTab extends PluginSettingTab {
 			}
 		}
 		if (this.plugin.hasSession) {
+            new Setting(containerEl).setName("Generate note from image")
+                .setDesc("GPT-5.4 mini. Uses Pixno AI credits, at least 4 per successful image. Saves in Pixno and appends to the open Markdown note, or creates a new note.")
+                .addButton(button => button.setButtonText("Choose image").setDisabled(this.busy).onClick(() => this.plugin.pickImage()));
 			new Setting(containerEl)
 				.setName("Pixno session")
 				.addButton(button => button.setButtonText("Log out").setDisabled(this.busy).onClick(() => this.run(async () => {

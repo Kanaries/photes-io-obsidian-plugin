@@ -1,6 +1,6 @@
 {
 	"name": "image-notes-photes-io",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"description": "Import Pixno notebooks into Obsidian as Markdown.",
 	"main": "main.js",
 	"scripts": {
