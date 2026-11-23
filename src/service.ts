@@ -150,8 +150,8 @@ export function createPixnoReadClient(request: Transport, apiOrigin = pixnoOrigi
         },
         async mobile(key: string, signal?: AbortSignal, notebookId?: number) {
             if (!isAccessKey(key)) throw new PixnoError(401);
-            const response = await send({ url: new URL(`${API_ROOT}/mobile`, origin).href, method: "POST", headers: { Authorization: `Bearer ${key}`, ...(notebookId ? { "Content-Type": "application/json" } : {}) },
-                ...(notebookId ? { body: JSON.stringify({ notebook_id: positiveId(notebookId) }) } : {}),
+            const response = await send({ url: new URL(`${API_ROOT}/mobile`, origin).href, method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ notebook_id: notebookId === undefined ? null : positiveId(notebookId) }),
             }, budget(signal));
             if (response.status !== 200) throw errorResponse(response);
             const value = object(response.json);

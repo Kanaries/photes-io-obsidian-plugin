@@ -489,7 +489,8 @@ test("sync revision checks and mobile creation never expose a bearer in a QR URL
     assert.equal(await client.revision(key, 123), "a".repeat(64));
     assert.deepEqual(await client.mobile(key), { notebookId: 123, loginUrl: `https://photes.io/auth/quick-login?next=${encodeURIComponent("/workspace/notebook?notebook_id=123")}#${"A".repeat(43)}` });
     assert.equal(seen[1].url, "https://photes.io/api/plugin/obsidian/v2/mobile");
-    assert.deepEqual(seen[1].headers, { Authorization: `Bearer ${key}` });
+    assert.deepEqual(seen[1].headers, { Authorization: `Bearer ${key}`, "Content-Type": "application/json" });
+    assert.deepEqual(JSON.parse(seen[1].body), { notebook_id: null });
     let attempts = 0;
     const failed = createPixnoReadClient(async () => { attempts++; throw new Error("connection lost"); });
     await assert.rejects(failed.mobile(key));
