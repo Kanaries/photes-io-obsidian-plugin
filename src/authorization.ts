@@ -69,13 +69,13 @@ export class PixnoAuthorization {
 		this.exchanging = true;
 		const signal = this.signal;
 		try {
+			const previous = this.storage.readSecret();
 			const tokens = await this.client.exchange(params.code, pending.verifier, signal);
 			if (signal.aborted) {
 				// A late exchange may already have created a grant. Retire it without exposing its secret.
 				void this.client.logout(tokens.refreshToken).catch(() => {});
 				return false;
 			}
-			const previous = this.storage.readSecret();
 			await this.save(tokens, signal);
 			if (isRefreshToken(previous) && previous !== tokens.refreshToken) {
 				void this.client.logout(previous).catch(() => {});
@@ -106,12 +106,35 @@ export class PixnoAuthorization {
 
 	private async save(tokens: TokenSet, signal: AbortSignal) {
 		if (signal.aborted) throw new PixnoError(401);
-		this.storage.writeSecret(tokens.refreshToken);
-		this.rotationPending = false;
-		await this.storage.writeRotationPending(false);
+		try {
+			this.storage.writeSecret(tokens.refreshToken);
+			await this.storage.writeRotationPending(false);
+		} catch {
+			await this.discardFailedSave(tokens.refreshToken, signal);
+			throw new PixnoError(503);
+		}
 		if (signal.aborted) throw new PixnoError(401);
+		this.rotationPending = false;
 		const lead = Math.min(REFRESH_EARLY_MS, Math.max(0, (tokens.expiresAt - Date.now()) / 2));
 		this.memory = { accessToken: tokens.accessToken, refreshAt: tokens.expiresAt - lead };
+	}
+
+	private async discardFailedSave(secret: string, signal: AbortSignal) {
+		const revoke = this.client.logout(secret).catch(() => {});
+		if (!signal.aborted) this.memory = undefined;
+		try {
+			// A newer login can already have stored a different credential.
+			if (this.storage.readSecret() === secret) {
+				this.storage.writeSecret("");
+				if (!signal.aborted) {
+					this.rotationPending = false;
+					await this.storage.writeRotationPending(false);
+				}
+			}
+		} catch {
+			// The server revocation proceeds even when local cleanup cannot finish.
+		}
+		await revoke;
 	}
 
 	private async rotate(secret: string, signal: AbortSignal) {

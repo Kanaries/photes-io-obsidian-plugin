@@ -305,3 +305,77 @@ test("does not let a late exchange replace a newer browser login", async () => {
 	assert.equal(h.secrets.get(secretId), nextRefresh);
 	assert.equal(h.requests.length, 2);
 });
+
+test("revokes a newly exchanged grant when vault secret storage rejects the write", async () => {
+	const h = pluginHarness([minted(), { status: 204 }], { previous: { version: 3, pendingRotations: [] } });
+	h.plugin.app.secretStorage.setSecret = () => { throw new Error("storage unavailable"); };
+	await h.plugin.onload();
+	await h.callback(h.start());
+	assert.equal(h.plugin.hasSession, false);
+	assert.equal(h.requests.length, 2);
+	assert.ok(h.requests[1].url.endsWith("/logout"));
+	assert.deepEqual(JSON.parse(h.requests[1].body), { refresh_token: firstRefresh });
+});
+
+test("revokes the known grant and clears its exact secret when settings storage fails", async () => {
+	const h = pluginHarness([minted(), { status: 204 }], { previous: { version: 3, pendingRotations: [] } });
+	const save = h.plugin.saveData;
+	let first = true;
+	h.plugin.saveData = async value => {
+		if (first) {
+			first = false;
+			throw new Error("settings unavailable");
+		}
+		return save(value);
+	};
+	await h.plugin.onload();
+	await h.callback(h.start());
+	assert.equal(h.secrets.get(secretId), "");
+	assert.equal(h.plugin.hasSession, false);
+	assert.equal(h.requests.length, 2);
+	assert.deepEqual(JSON.parse(h.requests[1].body), { refresh_token: firstRefresh });
+});
+
+test("revokes a known rotated grant after a failed local write and does not replay the old refresh secret", async () => {
+	const h = pluginHarness([minted(nextRefresh), { status: 204 }], {
+		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+	});
+	h.plugin.app.secretStorage.setSecret = () => { throw new Error("storage unavailable"); };
+	await h.plugin.onload();
+	await assert.rejects(h.plugin.listNotebooks(), { status: 503 });
+	assert.deepEqual(JSON.parse(h.requests[1].body), { refresh_token: nextRefresh });
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.plugin.needsLogin, true);
+	await assert.rejects(h.plugin.listNotebooks(), { status: 401 });
+	assert.equal(h.requests.length, 2);
+});
+
+test("late save-failure cleanup leaves a different login's credential intact", async () => {
+	let failSave;
+	const failedWrite = new Promise((_resolve, reject) => { failSave = reject; });
+	const h = pluginHarness([minted(), minted(nextRefresh), { status: 204 }, { status: 204 }], {
+		previous: { version: 3, pendingRotations: [] },
+	});
+	const save = h.plugin.saveData;
+	let first = true;
+	h.plugin.saveData = value => {
+		if (first) {
+			first = false;
+			return failedWrite;
+		}
+		return save(value);
+	};
+	await h.plugin.onload();
+	const superseded = h.callback(h.start());
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	const active = h.callback(h.start());
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+	failSave(new Error("previous settings write failed"));
+	await Promise.all([superseded, active]);
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+	const revocations = h.requests.filter(request => request.url.endsWith("/logout"));
+	assert.ok(revocations.length > 0);
+	assert.ok(revocations.every(request => JSON.parse(request.body).refresh_token === firstRefresh));
+});
