@@ -1,36 +1,28 @@
 {
 	"name": "image-notes-photes-io",
-	"version": "0.3.1",
-	"description": "Create Notes from Photes and insert them.",
+	"version": "0.4.0",
+	"description": "Import Pixno notebooks into Obsidian as Markdown.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"version": "node version-bump.mjs && git add manifest.json versions.json"
+		"version": "node version-bump.mjs && git add manifest.json versions.json",
+		"test": "node --test test/*.test.mjs"
 	},
 	"keywords": [],
 	"author": "",
 	"license": "MIT",
 	"devDependencies": {
-		"@codemirror/language": "^6.10.2",
 		"@codemirror/state": "^6.4.1",
 		"@codemirror/view": "^6.28.1",
-		"@supabase/supabase-js": "^2.44.1",
 		"@types/node": "^16.11.6",
-		"@types/qrcode": "^1.5.5",
-		"@typescript-eslint/eslint-plugin": "5.29.0",
-		"@typescript-eslint/parser": "5.29.0",
-		"@vercel/blob": "^0.23.3",
 		"builtin-modules": "3.3.0",
 		"esbuild": "0.17.3",
-		"obsidian": "latest",
-		"obsidian-typings": "^1.1.6",
-		"p-limit": "^5.0.0",
-		"qrcode": "^1.5.3",
+		"obsidian": "1.11.4",
 		"tslib": "2.4.0",
 		"typescript": "4.7.4"
 	},
 	"dependencies": {
-		"jwt-decode": "^4.0.0"
+		"@noble/hashes": "1.8.0"
 	}
 }

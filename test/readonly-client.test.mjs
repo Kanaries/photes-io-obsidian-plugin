@@ -1,0 +1,381 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { test } from "node:test";
+import { build } from "esbuild";
+
+const obsidianShim = {
+	name: "obsidian-test-shim",
+	setup(builder) {
+		builder.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian", namespace: "test" }));
+		builder.onLoad({ filter: /^obsidian$/, namespace: "test" }, () => ({
+			contents: `
+				export class TFolder {}
+				export class Plugin {}
+				export class PluginSettingTab {}
+				export class Setting {}
+				export const normalizePath = path => path;
+				export const requestUrl = request => globalThis.pixnoTestRequest(request);
+			`,
+		}));
+	},
+};
+
+async function moduleFor(entryPoint) {
+	const { outputFiles: [file] } = await build({
+		entryPoints: [entryPoint], bundle: true, write: false, format: "esm", plugins: [obsidianShim],
+	});
+	return import(`data:text/javascript;base64,${Buffer.from(file.contents).toString("base64")}`);
+}
+
+const { createPixnoReadClient, PixnoError, pixnoOrigin } = await moduleFor("src/service.ts");
+const { default: PixnoPlugin } = await moduleFor("src/main.ts");
+const key = "pxo_" + "A".repeat(43);
+const expiry = new Date(Date.now() + 3600_000).toISOString();
+const notebook = { id: 12, title: "A notebook" };
+const success = json => ({ status: 200, json });
+
+test("only sends a v2 Bearer key to the configured HTTPS origin", async () => {
+	const seen = [];
+	const client = createPixnoReadClient(async ({ url, headers }) => {
+		seen.push(new URL(url));
+		assert.deepEqual(headers, { Authorization: `Bearer ${key}` });
+		return success({ plugin: "obsidian", access: "read", expires_at: expiry });
+	}, "https://preview.example");
+	await assert.rejects(client.info("old-key"), { status: 401 });
+	assert.equal(seen.length, 0);
+	assert.equal(await client.info(key), Date.parse(expiry));
+	assert.equal(seen[0].href, "https://preview.example/api/plugin/obsidian/v2/info");
+	assert.throws(() => pixnoOrigin("http://example.test"));
+	assert.throws(() => pixnoOrigin("https://user@example.test/other"));
+});
+
+test("paginates notebook results and rejects a stalled cursor", async () => {
+	const pages = [
+		success({ notebooks: [notebook], next_after: 12 }),
+		success({ notebooks: [{ id: 20, title: null }], next_after: null }),
+	];
+	const client = createPixnoReadClient(async ({ url }) => {
+		assert.equal(new URL(url).searchParams.get("after"), pages.length === 2 ? null : "12");
+		return pages.shift();
+	});
+	assert.deepEqual(await client.list(key), [notebook, { id: 20, title: null }]);
+	const stalled = createPixnoReadClient(async () => success({ notebooks: [], next_after: 12 }));
+	await assert.rejects(stalled.list(key), error => error instanceof PixnoError && error.status === 502);
+});
+
+test("retries an oversized download page with a smaller limit and preserves cursor order", async () => {
+	const requests = [];
+	const client = createPixnoReadClient(async ({ url }) => {
+		const query = new URL(url).searchParams;
+		requests.push([query.get("after"), query.get("limit")]);
+		if (requests.length === 1) return { status: 413 };
+		return requests.length === 2
+			? success({ notebook, notes: [{ id: 13, content: "First" }], next_after: 13 })
+			: success({ notebook, notes: [{ id: 19, content: "Second" }], next_after: null });
+	});
+	assert.deepEqual(await client.download(key, 12), { ...notebook, notes: ["First", "Second"] });
+	assert.deepEqual(requests, [[null, "10"], [null, "5"], ["13", "5"]]);
+});
+
+test("fails closed for mismatched notebook ID, authorization loss and maintenance", async () => {
+	for (const result of [
+		[502, success({ notebook: { id: 908, title: null }, notes: [], next_after: null })],
+		[401, { status: 401 }],
+		[503, { status: 503 }],
+	]) {
+		const client = createPixnoReadClient(async () => result[1]);
+		await assert.rejects(client.download(key, 12), { status: result[0] });
+	}
+});
+
+const code = "C".repeat(43);
+const firstRefresh = "pxor_" + "D".repeat(43);
+const nextRefresh = "pxor_" + "E".repeat(43);
+const minted = (refreshToken = firstRefresh, expires = 900) => success({
+	access_token: key,
+	refresh_token: refreshToken,
+	expires_in: expires,
+	token_type: "Bearer",
+});
+const originKey = createHash("sha256").update("https://photes.io").digest("hex").slice(0, 32);
+const secretId = `pixno-refresh-${originKey}`;
+
+function pluginHarness(responses, { previous, secret, existingPaths = [] } = {}) {
+	const saved = [];
+	const created = [];
+	const requests = [];
+	const secrets = new Map(secret ? [[secretId, secret]] : []);
+	const plugin = new PixnoPlugin();
+	let callback;
+	let opened;
+	plugin.loadData = async () => previous ?? { accessToken: "old-key", autoSync: true };
+	plugin.saveData = async content => saved.push(content);
+	plugin.addSettingTab = () => {};
+	plugin.registerObsidianProtocolHandler = (name, handler) => {
+		assert.equal(name, "pixno-auth");
+		callback = handler;
+	};
+	plugin.app = {
+		secretStorage: {
+			getSecret: id => secrets.get(id) ?? null,
+			setSecret: (id, value) => { secrets.set(id, value); },
+		},
+		vault: {
+			getAbstractFileByPath: path => existingPaths.includes(path) ? { path } : null,
+			createFolder: async () => {},
+			create: async (path, value) => created.push({ path, value }),
+		},
+	};
+	globalThis.window = { open: (url, target, flags) => {
+		assert.equal(target, "_blank");
+		assert.match(flags, /noopener/);
+		opened = new URL(url);
+	} };
+	globalThis.pixnoTestRequest = async request => {
+		const url = new URL(request.url);
+		assert.equal(url.origin, "https://photes.io");
+		assert.ok(url.pathname.startsWith("/api/plugin/obsidian/v2/"));
+		if (request.method === "POST") {
+			assert.equal(url.search, "");
+			assert.deepEqual(request.headers, { "Content-Type": "application/json" });
+		} else {
+			assert.deepEqual(request.headers, { Authorization: `Bearer ${key}` });
+		}
+		requests.push(request);
+		const response = responses.shift();
+		return typeof response === "function" ? response(request) : response;
+	};
+	function start() {
+		plugin.beginLogin();
+		assert.equal(opened.origin, "https://photes.io");
+		assert.equal(opened.pathname, "/plugin/obsidian/authorize");
+		assert.deepEqual([...opened.searchParams.keys()], ["state", "code_challenge", "code_challenge_method"]);
+		assert.equal(opened.searchParams.get("code_challenge_method"), "S256");
+		return { action: "pixno-auth", code, state: opened.searchParams.get("state") };
+	}
+	return { plugin, saved, created, requests, secrets, start, callback: params => callback(params), opened: () => opened };
+}
+
+test("exchanges a browser code once after matching state and PKCE, then imports complete Markdown", async () => {
+	const h = pluginHarness([
+		minted(),
+		success({ notebook, notes: [{ id: 13, content: "First" }], next_after: 13 }),
+		success({ notebook, notes: [{ id: 19, content: "Second" }], next_after: null }),
+	]);
+	await h.plugin.onload();
+	const callback = h.start();
+	await h.callback({ ...callback, state: "Z".repeat(43) });
+	await h.callback({ ...callback, extra: "unexpected" });
+	assert.equal(h.requests.length, 0);
+	await h.callback(callback);
+	await h.callback(callback);
+	assert.equal(h.requests.length, 1);
+	const { grant_type, code: authCode, code_verifier } = JSON.parse(h.requests[0].body);
+	assert.equal(grant_type, "authorization_code");
+	assert.equal(authCode, code);
+	assert.match(code_verifier, /^[A-Za-z0-9_-]{43}$/);
+	assert.equal(createHash("sha256").update(code_verifier).digest("base64url"), h.opened().searchParams.get("code_challenge"));
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.deepEqual(h.saved, [{ version: 3, pendingRotations: [] }, { version: 3, pendingRotations: [] }]);
+	assert.equal(await h.plugin.importNotebook(12), "Pixno Imports/notebook-12.md");
+	assert.deepEqual(h.created, [{ path: "Pixno Imports/notebook-12.md", value: "# A notebook\n\nFirst\n\nSecond\n" }]);
+	h.plugin.onunload();
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.requests.length, 3);
+});
+
+test("rejects expired and superseded callbacks before exchange", async t => {
+	let time = Date.now();
+	t.mock.method(Date, "now", () => time);
+	const h = pluginHarness([]);
+	await h.plugin.onload();
+	const stale = h.start();
+	const current = h.start();
+	await h.callback(stale);
+	time += 5 * 60_000;
+	await h.callback(current);
+	assert.equal(h.requests.length, 0);
+	assert.equal(h.plugin.hasSession, false);
+});
+
+test("coalesces startup rotation and concurrent requests and rotates again on expiry", async t => {
+	let time = Date.now();
+	t.mock.method(Date, "now", () => time);
+	const rows = success({ notebooks: [notebook], next_after: null });
+	const h = pluginHarness([minted(nextRefresh, 2), rows, rows, minted(firstRefresh), rows], {
+		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+	});
+	await h.plugin.onload();
+	assert.deepEqual(await Promise.all([h.plugin.listNotebooks(), h.plugin.listNotebooks()]), [[notebook], [notebook]]);
+	assert.equal(h.requests.filter(x => x.method === "POST").length, 1);
+	assert.deepEqual(JSON.parse(h.requests[0].body), { grant_type: "refresh_token", refresh_token: firstRefresh });
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+	assert.deepEqual(h.saved, [{ version: 3, pendingRotations: [originKey] }, { version: 3, pendingRotations: [] }]);
+	time += 3_000;
+	assert.deepEqual(await h.plugin.listNotebooks(), [notebook]);
+	assert.deepEqual(JSON.parse(h.requests[3].body), { grant_type: "refresh_token", refresh_token: nextRefresh });
+	h.plugin.onunload();
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.requests.filter(x => x.url.endsWith("/logout")).length, 0);
+});
+
+test("preserves the local secret after ambiguous refresh and never replays it across restarts", async () => {
+	const h = pluginHarness([() => { throw new Error("private transient provider response"); }], {
+		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+	});
+	await h.plugin.onload();
+	await assert.rejects(h.plugin.listNotebooks(), { status: 503 });
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.plugin.needsLogin, true);
+	const restarted = pluginHarness([], { previous: h.saved.at(-1), secret: h.secrets.get(secretId) });
+	await restarted.plugin.onload();
+	await assert.rejects(restarted.plugin.listNotebooks(), { status: 401 });
+	assert.equal(restarted.requests.length, 0);
+	assert.equal(restarted.secrets.get(secretId), firstRefresh);
+});
+
+test("allows retry only when the server rejected rotation before executing it", async () => {
+	const h = pluginHarness([{ status: 429, json: { error: "rate_limited" } }, minted(nextRefresh), success({ notebooks: [notebook], next_after: null })], {
+		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+	});
+	await h.plugin.onload();
+	await assert.rejects(h.plugin.listNotebooks(), { status: 429 });
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.plugin.needsLogin, false);
+	assert.deepEqual(await h.plugin.listNotebooks(), [notebook]);
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+});
+
+test("clears invalid grants and logs out by exact refresh token with a local clear", async () => {
+	const denied = pluginHarness([{ status: 401 }], { previous: { version: 3, pendingRotations: [] }, secret: firstRefresh });
+	await denied.plugin.onload();
+	await assert.rejects(denied.plugin.listNotebooks(), { status: 401 });
+	assert.equal(denied.plugin.hasSession, false);
+
+	const h = pluginHarness([minted(), { status: 204 }]);
+	await h.plugin.onload();
+	await h.callback(h.start());
+	await h.plugin.logout();
+	assert.equal(h.requests[1].url, "https://photes.io/api/plugin/obsidian/v2/logout");
+	assert.deepEqual(JSON.parse(h.requests[1].body), { refresh_token: firstRefresh });
+	assert.equal(h.secrets.get(secretId), "");
+	assert.equal(h.plugin.hasSession, false);
+	await assert.rejects(h.plugin.listNotebooks(), { status: 401 });
+});
+
+test("rejects late refresh after logout and preserves no local credentials on failed revocation", async () => {
+	let finish;
+	const work = new Promise(resolve => { finish = resolve; });
+	const h = pluginHarness([() => work, { status: 503 }], { previous: { version: 3, pendingRotations: [] }, secret: firstRefresh });
+	await h.plugin.onload();
+	const access = h.plugin.listNotebooks();
+	access.catch(() => {});
+	while (h.requests.length === 0) await new Promise(resolve => setImmediate(resolve));
+	await assert.rejects(h.plugin.logout(), { status: 503 });
+	finish(minted(nextRefresh));
+	await assert.rejects(access, { status: 401 });
+	assert.equal(h.secrets.get(secretId), "");
+	assert.equal(h.requests.length, 2);
+});
+
+test("never creates a file after failed pagination or if the path is already taken", async () => {
+	for (const priorPath of [false, true]) {
+		const h = pluginHarness([
+			minted(),
+			success({ notebook, notes: [{ id: 13, content: "First" }], next_after: priorPath ? null : 13 }),
+			{ status: 503 },
+		], { existingPaths: priorPath ? ["Pixno Imports/notebook-12.md"] : [] });
+		await h.plugin.onload();
+		await h.callback(h.start());
+		await assert.rejects(h.plugin.importNotebook(12), { status: priorPath ? 409 : 503 });
+		assert.deepEqual(h.created, []);
+	}
+});
+
+test("does not let a late exchange replace a newer browser login", async () => {
+	let finish;
+	const work = new Promise(resolve => { finish = resolve; });
+	const h = pluginHarness([() => work, minted(nextRefresh)]);
+	await h.plugin.onload();
+	const first = h.callback(h.start());
+	const latest = h.start();
+	await h.callback(latest);
+	finish(minted(firstRefresh));
+	await first;
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+	assert.equal(h.requests.length, 2);
+});
+
+test("revokes a newly exchanged grant when vault secret storage rejects the write", async () => {
+	const h = pluginHarness([minted(), { status: 204 }], { previous: { version: 3, pendingRotations: [] } });
+	h.plugin.app.secretStorage.setSecret = () => { throw new Error("storage unavailable"); };
+	await h.plugin.onload();
+	await h.callback(h.start());
+	assert.equal(h.plugin.hasSession, false);
+	assert.equal(h.requests.length, 2);
+	assert.ok(h.requests[1].url.endsWith("/logout"));
+	assert.deepEqual(JSON.parse(h.requests[1].body), { refresh_token: firstRefresh });
+});
+
+test("revokes the known grant and clears its exact secret when settings storage fails", async () => {
+	const h = pluginHarness([minted(), { status: 204 }], { previous: { version: 3, pendingRotations: [] } });
+	const save = h.plugin.saveData;
+	let first = true;
+	h.plugin.saveData = async value => {
+		if (first) {
+			first = false;
+			throw new Error("settings unavailable");
+		}
+		return save(value);
+	};
+	await h.plugin.onload();
+	await h.callback(h.start());
+	assert.equal(h.secrets.get(secretId), "");
+	assert.equal(h.plugin.hasSession, false);
+	assert.equal(h.requests.length, 2);
+	assert.deepEqual(JSON.parse(h.requests[1].body), { refresh_token: firstRefresh });
+});
+
+test("revokes a known rotated grant after a failed local write and does not replay the old refresh secret", async () => {
+	const h = pluginHarness([minted(nextRefresh), { status: 204 }], {
+		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+	});
+	h.plugin.app.secretStorage.setSecret = () => { throw new Error("storage unavailable"); };
+	await h.plugin.onload();
+	await assert.rejects(h.plugin.listNotebooks(), { status: 503 });
+	assert.deepEqual(JSON.parse(h.requests[1].body), { refresh_token: nextRefresh });
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.plugin.needsLogin, true);
+	await assert.rejects(h.plugin.listNotebooks(), { status: 401 });
+	assert.equal(h.requests.length, 2);
+});
+
+test("late save-failure cleanup leaves a different login's credential intact", async () => {
+	let failSave;
+	const failedWrite = new Promise((_resolve, reject) => { failSave = reject; });
+	const h = pluginHarness([minted(), minted(nextRefresh), { status: 204 }, { status: 204 }], {
+		previous: { version: 3, pendingRotations: [] },
+	});
+	const save = h.plugin.saveData;
+	let first = true;
+	h.plugin.saveData = value => {
+		if (first) {
+			first = false;
+			return failedWrite;
+		}
+		return save(value);
+	};
+	await h.plugin.onload();
+	const superseded = h.callback(h.start());
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	const active = h.callback(h.start());
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+	failSave(new Error("previous settings write failed"));
+	await Promise.all([superseded, active]);
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+	const revocations = h.requests.filter(request => request.url.endsWith("/logout"));
+	assert.ok(revocations.length > 0);
+	assert.ok(revocations.every(request => JSON.parse(request.body).refresh_token === firstRefresh));
+});

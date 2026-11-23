@@ -1,236 +1,121 @@
-import { App, Modal, Notice, PluginSettingTab, Setting } from "obsidian";
-import type PhotesObsidianPlugin from "./main";
-import { getInfo, login, startSync } from "./service";
-import { DEFAULT_SYNC_PATH } from "./const";
-import { listenSync } from "./sync";
+import { App, PluginSettingTab, Setting } from "obsidian";
+import type PixnoPlugin from "./main";
+import { Notebook, PixnoError } from "./service";
 
-export class PhotesSettingsTab extends PluginSettingTab {
-	plugin: PhotesObsidianPlugin;
-	info: {
-		usage: [number, number];
-		email: string;
-		subscription: {
-			prices: {
-				products: {
-					name: string;
-				};
-			};
-		} | null;
-	} | null;
-	error: string | null;
-	syncingInfo: string | null;
+function message(error: unknown) {
+	switch (error instanceof PixnoError ? error.status : 0) {
+		case 401: return "Your Pixno session has expired. Log in again.";
+		case 404: return "This notebook is no longer available.";
+		case 409: return "An import already exists at this path. Move it before importing another copy.";
+		case 413: return "This notebook or list is too large for the plugin to import.";
+		case 429: return "Pixno is limiting requests. Wait a minute and try again.";
+		case 503: return "Pixno plugin access is temporarily unavailable.";
+		default: return "Pixno could not complete the request. Try again.";
+	}
+}
 
-	constructor(app: App, plugin: PhotesObsidianPlugin) {
+export class PixnoSettingsTab extends PluginSettingTab {
+	private notebooks: Notebook[] = [];
+	private selection: number | undefined;
+	private status = "";
+	private busy = false;
+
+	constructor(app: App, private plugin: PixnoPlugin) {
 		super(app, plugin);
-		this.plugin = plugin;
-		if (this.plugin.settings.accessToken) {
-			this.fetchInfo();
-		}
 	}
 
-	display(): void {
-		const { containerEl } = this;
-
-		containerEl.empty();
-
-		if (this.plugin.settings.accessToken) {
-			new Setting(containerEl)
-				.setName("Logout")
-				.setDesc(
-					"Logout from your photes account. This operation will also remove the sync info."
-				)
-				.addButton((button) => {
-					button.setButtonText("Logout");
-					button.onClick(async () => {
-						this.plugin.settings.accessToken = "";
-						this.plugin.settings.lastSyncedTime = 0;
-						this.plugin.settings.syncTimestamp = 0;
-						this.plugin.settings.autoSync = false;
-						this.plugin.syncInstance?.stop();
-						this.plugin.syncInstance = null;
-						await this.plugin.saveSettings();
-						this.display();
-					});
-				});
-			new Setting(containerEl).setName("User info").setHeading();
-			if (!this.info) {
-				if (this.error) {
-					new Setting(containerEl)
-						.setName("An error occurred")
-						.setDesc(this.error)
-						.addButton((button) => {
-							button.setButtonText("Retry");
-							button.onClick(async () => {
-								await this.fetchInfo();
-							});
-						});
-				} else {
-					containerEl.createEl("p", { text: "Loading..." });
-				}
-			} else {
-				const { usage, email, subscription } = this.info;
-				new Setting(containerEl)
-					.setName("Reload")
-					.setDesc("Reload the user info")
-					.addButton((button) => {
-						button.setButtonText("Reload");
-						button.onClick(async () => {
-							await this.fetchInfo();
-						});
-					});
-
-				const subscriptionName = subscription?.prices.products.name;
-				const infoEl = containerEl.createEl("div", {
-					cls: "photes-info",
-				});
-				infoEl.createEl("p", { text: `Email: ${email}` });
-				if (subscriptionName) {
-					infoEl.createEl("p", {
-						text: `Subscription: ${subscriptionName}`,
-					});
-				} else {
-					infoEl.createEl("p", {
-						text: `Subscription: Free`,
-					});
-				}
-				infoEl.createEl("p", {
-					text: `Usage: ${usage[0]} / ${usage[1]}`,
-				});
-			}
-			new Setting(containerEl).setHeading().setName("Sync");
-			new Setting(containerEl)
-				.setName("Enable auto sync")
-				.setDesc("Automatically sync notes.")
-				.addToggle((toggle) => {
-					toggle.setValue(this.plugin.settings.autoSync);
-					toggle.onChange(async (value) => {
-						if (value) {
-							this.plugin.settings.autoSync = true;
-							this.plugin.saveSettings();
-							this.plugin.syncInstance = await listenSync(
-								this.plugin.settings.accessToken,
-								this.app,
-								this.plugin
-							);
-						} else {
-							this.plugin.syncInstance?.stop();
-							this.plugin.syncInstance = null;
-							this.plugin.settings.autoSync = false;
-							await this.plugin.saveSettings();
-						}
-					});
-				});
-			new Setting(containerEl)
-				.setName("Sync")
-				.setDesc(
-					this.syncingInfo
-						? this.syncingInfo
-						: this.plugin.settings.lastSyncedTime
-						? `Last synced time: ${new Date(
-								this.plugin.settings.lastSyncedTime
-						  ).toLocaleString()}`
-						: "Not synced yet"
-				)
-				.addButton((button) => {
-					button.setButtonText("Sync all notes");
-					button.setDisabled(!!this.syncingInfo);
-					button.onClick(async () => {
-						const { lastSyncedTime, syncTimestamp } =
-							await startSync(
-								this.plugin.settings.accessToken,
-								this.app,
-								this.plugin.settings.syncPath ||
-									DEFAULT_SYNC_PATH,
-								(x) => {
-									this.plugin.showSyncStatus(x);
-									this.syncingInfo = x;
-									this.display();
-								},
-								0
-							);
-						this.plugin.settings.lastSyncedTime = lastSyncedTime;
-						this.plugin.settings.syncTimestamp = syncTimestamp;
-						new Notice("Sync completed");
-						this.plugin.showSyncStatus("");
-						this.syncingInfo = "";
-						this.display();
-						await this.plugin.saveSettings();
-					});
-				})
-				.addButton((button) => {
-					button.setButtonText("Sync");
-					button.setDisabled(!!this.syncingInfo);
-					button.onClick(async () => {
-						const { lastSyncedTime, syncTimestamp } =
-							await startSync(
-								this.plugin.settings.accessToken,
-								this.app,
-								this.plugin.settings.syncPath ||
-									DEFAULT_SYNC_PATH,
-								(x) => {
-									this.plugin.showSyncStatus(x);
-									this.syncingInfo = x;
-									this.display();
-								},
-								this.plugin.settings.syncTimestamp
-							);
-						this.plugin.settings.lastSyncedTime = lastSyncedTime;
-						this.plugin.settings.syncTimestamp = syncTimestamp;
-						new Notice("Sync completed");
-						this.plugin.showSyncStatus("");
-						this.syncingInfo = "";
-						this.display();
-						await this.plugin.saveSettings();
-					});
-				});
-		} else {
-			new Setting(containerEl)
-				.setName("Login")
-				.setDesc("Login to your photes account to use the feature")
-				.addButton((button) => {
-					button.setButtonText("Login");
-					button.onClick(async () => {
-						login();
-					});
-				});
-		}
-		new Setting(containerEl).setName("Path").setHeading();
-		new Setting(containerEl)
-			.setName("Sync path")
-			.setDesc(
-				"The path to save synced notes. Edit it will only affect new files."
-			)
-			.addText((text) => {
-				text.setPlaceholder("/photes");
-				text.setValue(this.plugin.settings.syncPath);
-				text.onChange(async (value) => {
-					this.plugin.settings.syncPath = value;
-					await this.plugin.saveSettings();
-				});
-			});
-		new Setting(containerEl)
-			.setName("Image path")
-			.setDesc("The path to save the image added with ribbon action.")
-			.addText((text) => {
-				text.setPlaceholder("/assets");
-				text.setValue(this.plugin.settings.imagePath);
-				text.onChange(async (value) => {
-					this.plugin.settings.imagePath = value;
-					await this.plugin.saveSettings();
-				});
-			});
-	}
-
-	async fetchInfo() {
-		this.info = null;
-		this.error = null;
+	private async run(action: () => Promise<void>) {
+		if (this.busy) return;
+		this.busy = true;
+		this.status = "Working…";
 		this.display();
 		try {
-			const resp = await getInfo(this.plugin.settings.accessToken);
-			this.info = resp;
-		} catch (e) {
-			this.error = `${e}`;
+			await action();
+		} catch (error) {
+			if (error instanceof PixnoError && error.status === 401) {
+				this.notebooks = [];
+				this.selection = undefined;
+			}
+			this.status = message(error);
+		} finally {
+			this.busy = false;
+			this.display();
 		}
-		this.display();
+	}
+
+	authorizationChanged(status: string) {
+		this.status = status;
+		if (this.containerEl?.isConnected) this.display();
+	}
+
+	display() {
+		const { containerEl } = this;
+		containerEl.empty();
+		containerEl.createEl("p", { text: "Import Pixno notebooks as Markdown. Each import creates a new file in Pixno Imports." });
+
+		if (!this.plugin.hasSession || this.plugin.needsLogin || this.plugin.waiting) {
+			new Setting(containerEl)
+				.setName("Pixno")
+				.setDesc(this.plugin.waiting
+					? "Finish signing in and approving access in your browser, then return to Obsidian."
+					: "Log in through the browser to import your notebooks.")
+				.addButton(button => button.setButtonText(this.plugin.waiting ? "Start a new login" : "Log in to Pixno").setDisabled(this.busy).onClick(() => {
+					try {
+						this.plugin.beginLogin();
+						this.notebooks = [];
+						this.selection = undefined;
+						this.status = "Continue in your browser.";
+					} catch (error) {
+						this.status = message(error);
+					}
+					this.display();
+				}));
+		} else {
+			new Setting(containerEl).setName("Pixno notebooks")
+				.addButton(button => button.setButtonText("Load notebooks").setDisabled(this.busy).onClick(() => this.run(async () => {
+					this.notebooks = await this.plugin.listNotebooks();
+					this.selection = this.notebooks[0]?.id;
+					this.status = this.notebooks.length ? "Choose a notebook to import." : "No Pixno notebooks found.";
+				})));
+			if (this.selection !== undefined) {
+				new Setting(containerEl)
+					.setName("Notebook to import")
+					.addDropdown(dropdown => {
+						for (const notebook of this.notebooks) {
+							dropdown.addOption(String(notebook.id), notebook.title || `Notebook ${notebook.id}`);
+						}
+						dropdown.setValue(String(this.selection)).setDisabled(this.busy).onChange(value => {
+							this.selection = Number(value);
+						});
+					})
+					.addButton(button => button.setButtonText("Import Markdown").setDisabled(this.busy).onClick(() => this.run(async () => {
+						if (this.selection === undefined) return;
+						const path = await this.plugin.importNotebook(this.selection);
+						this.status = `Imported ${path}.`;
+					})));
+			}
+		}
+		if (this.plugin.hasSession) {
+			new Setting(containerEl)
+				.setName("Pixno session")
+				.addButton(button => button.setButtonText("Log out").setDisabled(this.busy).onClick(() => this.run(async () => {
+					this.notebooks = [];
+					this.selection = undefined;
+					try {
+						await this.plugin.logout();
+						this.status = "Logged out of Pixno.";
+					} catch {
+						this.status = this.plugin.hasSession
+							? "Could not confirm logout. Review your session in Pixno Integrations."
+							: "Local session cleared. Review Pixno Integrations to revoke the server session.";
+					}
+				})));
+		}
+		containerEl.createEl("a", {
+			text: "Manage Pixno integrations",
+			href: this.plugin.integrationsUrl,
+			attr: { target: "_blank", rel: "noopener noreferrer" },
+		});
+		containerEl.createEl("p", { text: this.status, attr: { role: "status" } });
 	}
 }

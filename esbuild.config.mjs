@@ -38,9 +38,8 @@ const context = await esbuild.context({
 	sourcemap: prod ? false : "inline",
 	treeShaking: true,
 	outfile: "main.js",
-	alias: {
-		stream: "src/polyfill",
-		crypto: "src/polyfill",
+	define: {
+		PIXNO_API_ORIGIN: JSON.stringify(process.env.PIXNO_OBSIDIAN_API_ORIGIN || "https://photes.io"),
 	}
 });
 
