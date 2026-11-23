@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { build } from "esbuild";
 
@@ -87,80 +88,220 @@ test("fails closed for mismatched notebook ID, authorization loss and maintenanc
 	}
 });
 
-function pluginHarness(responses, existingPaths = []) {
+const code = "C".repeat(43);
+const firstRefresh = "pxor_" + "D".repeat(43);
+const nextRefresh = "pxor_" + "E".repeat(43);
+const minted = (refreshToken = firstRefresh, expires = 900) => success({
+	access_token: key,
+	refresh_token: refreshToken,
+	expires_in: expires,
+	token_type: "Bearer",
+});
+const originKey = createHash("sha256").update("https://photes.io").digest("hex").slice(0, 32);
+const secretId = `pixno-refresh-${originKey}`;
+
+function pluginHarness(responses, { previous, secret, existingPaths = [] } = {}) {
 	const saved = [];
 	const created = [];
+	const requests = [];
+	const secrets = new Map(secret ? [[secretId, secret]] : []);
 	const plugin = new PixnoPlugin();
-	plugin.loadData = async () => ({ accessToken: "old-key", autoSync: true });
+	let callback;
+	let opened;
+	plugin.loadData = async () => previous ?? { accessToken: "old-key", autoSync: true };
 	plugin.saveData = async content => saved.push(content);
 	plugin.addSettingTab = () => {};
+	plugin.registerObsidianProtocolHandler = (name, handler) => {
+		assert.equal(name, "pixno-auth");
+		callback = handler;
+	};
 	plugin.app = {
+		secretStorage: {
+			getSecret: id => secrets.get(id) ?? null,
+			setSecret: (id, value) => { secrets.set(id, value); },
+		},
 		vault: {
 			getAbstractFileByPath: path => existingPaths.includes(path) ? { path } : null,
 			createFolder: async () => {},
 			create: async (path, value) => created.push({ path, value }),
 		},
 	};
-	globalThis.pixnoTestRequest = async ({ headers }) => {
-		assert.deepEqual(headers, { Authorization: `Bearer ${key}` });
-		return responses.shift();
+	globalThis.window = { open: (url, target, flags) => {
+		assert.equal(target, "_blank");
+		assert.match(flags, /noopener/);
+		opened = new URL(url);
+	} };
+	globalThis.pixnoTestRequest = async request => {
+		const url = new URL(request.url);
+		assert.equal(url.origin, "https://photes.io");
+		assert.ok(url.pathname.startsWith("/api/plugin/obsidian/v2/"));
+		if (request.method === "POST") {
+			assert.equal(url.search, "");
+			assert.deepEqual(request.headers, { "Content-Type": "application/json" });
+		} else {
+			assert.deepEqual(request.headers, { Authorization: `Bearer ${key}` });
+		}
+		requests.push(request);
+		const response = responses.shift();
+		return typeof response === "function" ? response(request) : response;
 	};
-	return { plugin, saved, created };
+	function start() {
+		plugin.beginLogin();
+		assert.equal(opened.origin, "https://photes.io");
+		assert.equal(opened.pathname, "/plugin/obsidian/authorize");
+		assert.deepEqual([...opened.searchParams.keys()], ["state", "code_challenge", "code_challenge_method"]);
+		assert.equal(opened.searchParams.get("code_challenge_method"), "S256");
+		return { action: "pixno-auth", code, state: opened.searchParams.get("state") };
+	}
+	return { plugin, saved, created, requests, secrets, start, callback: params => callback(params), opened: () => opened };
 }
 
-test("drops legacy settings, keeps the new secret in memory and imports only complete Markdown", async () => {
-	const { plugin, saved, created } = pluginHarness([
-		success({ plugin: "obsidian", access: "read", expires_at: expiry }),
+test("exchanges a browser code once after matching state and PKCE, then imports complete Markdown", async () => {
+	const h = pluginHarness([
+		minted(),
 		success({ notebook, notes: [{ id: 13, content: "First" }], next_after: 13 }),
 		success({ notebook, notes: [{ id: 19, content: "Second" }], next_after: null }),
 	]);
-	try {
-		await plugin.onload();
-		await plugin.connect(key);
-		assert.equal(await plugin.importNotebook(12), "Pixno Imports/notebook-12.md");
-		assert.deepEqual(saved, [{ v2: true }]);
-		assert.deepEqual(created, [{ path: "Pixno Imports/notebook-12.md", value: "# A notebook\n\nFirst\n\nSecond\n" }]);
-		plugin.disconnect();
-		await assert.rejects(plugin.listNotebooks(), { status: 401 });
-	} finally {
-		delete globalThis.pixnoTestRequest;
-	}
+	await h.plugin.onload();
+	const callback = h.start();
+	await h.callback({ ...callback, state: "Z".repeat(43) });
+	await h.callback({ ...callback, extra: "unexpected" });
+	assert.equal(h.requests.length, 0);
+	await h.callback(callback);
+	await h.callback(callback);
+	assert.equal(h.requests.length, 1);
+	const { grant_type, code: authCode, code_verifier } = JSON.parse(h.requests[0].body);
+	assert.equal(grant_type, "authorization_code");
+	assert.equal(authCode, code);
+	assert.match(code_verifier, /^[A-Za-z0-9_-]{43}$/);
+	assert.equal(createHash("sha256").update(code_verifier).digest("base64url"), h.opened().searchParams.get("code_challenge"));
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.deepEqual(h.saved, [{ version: 3, pendingRotations: [] }, { version: 3, pendingRotations: [] }]);
+	assert.equal(await h.plugin.importNotebook(12), "Pixno Imports/notebook-12.md");
+	assert.deepEqual(h.created, [{ path: "Pixno Imports/notebook-12.md", value: "# A notebook\n\nFirst\n\nSecond\n" }]);
+	h.plugin.onunload();
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.requests.length, 3);
 });
 
-test("creates no file after a failed later page and leaves a pre-existing path untouched", async () => {
+test("rejects expired and superseded callbacks before exchange", async t => {
+	let time = Date.now();
+	t.mock.method(Date, "now", () => time);
+	const h = pluginHarness([]);
+	await h.plugin.onload();
+	const stale = h.start();
+	const current = h.start();
+	await h.callback(stale);
+	time += 5 * 60_000;
+	await h.callback(current);
+	assert.equal(h.requests.length, 0);
+	assert.equal(h.plugin.hasSession, false);
+});
+
+test("coalesces startup rotation and concurrent requests and rotates again on expiry", async t => {
+	let time = Date.now();
+	t.mock.method(Date, "now", () => time);
+	const rows = success({ notebooks: [notebook], next_after: null });
+	const h = pluginHarness([minted(nextRefresh, 2), rows, rows, minted(firstRefresh), rows], {
+		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+	});
+	await h.plugin.onload();
+	assert.deepEqual(await Promise.all([h.plugin.listNotebooks(), h.plugin.listNotebooks()]), [[notebook], [notebook]]);
+	assert.equal(h.requests.filter(x => x.method === "POST").length, 1);
+	assert.deepEqual(JSON.parse(h.requests[0].body), { grant_type: "refresh_token", refresh_token: firstRefresh });
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+	assert.deepEqual(h.saved, [{ version: 3, pendingRotations: [originKey] }, { version: 3, pendingRotations: [] }]);
+	time += 3_000;
+	assert.deepEqual(await h.plugin.listNotebooks(), [notebook]);
+	assert.deepEqual(JSON.parse(h.requests[3].body), { grant_type: "refresh_token", refresh_token: nextRefresh });
+	h.plugin.onunload();
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.requests.filter(x => x.url.endsWith("/logout")).length, 0);
+});
+
+test("preserves the local secret after ambiguous refresh and never replays it across restarts", async () => {
+	const h = pluginHarness([() => { throw new Error("private transient provider response"); }], {
+		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+	});
+	await h.plugin.onload();
+	await assert.rejects(h.plugin.listNotebooks(), { status: 503 });
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.plugin.needsLogin, true);
+	const restarted = pluginHarness([], { previous: h.saved.at(-1), secret: h.secrets.get(secretId) });
+	await restarted.plugin.onload();
+	await assert.rejects(restarted.plugin.listNotebooks(), { status: 401 });
+	assert.equal(restarted.requests.length, 0);
+	assert.equal(restarted.secrets.get(secretId), firstRefresh);
+});
+
+test("allows retry only when the server rejected rotation before executing it", async () => {
+	const h = pluginHarness([{ status: 429, json: { error: "rate_limited" } }, minted(nextRefresh), success({ notebooks: [notebook], next_after: null })], {
+		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+	});
+	await h.plugin.onload();
+	await assert.rejects(h.plugin.listNotebooks(), { status: 429 });
+	assert.equal(h.secrets.get(secretId), firstRefresh);
+	assert.equal(h.plugin.needsLogin, false);
+	assert.deepEqual(await h.plugin.listNotebooks(), [notebook]);
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+});
+
+test("clears invalid grants and logs out by exact refresh token with a local clear", async () => {
+	const denied = pluginHarness([{ status: 401 }], { previous: { version: 3, pendingRotations: [] }, secret: firstRefresh });
+	await denied.plugin.onload();
+	await assert.rejects(denied.plugin.listNotebooks(), { status: 401 });
+	assert.equal(denied.plugin.hasSession, false);
+
+	const h = pluginHarness([minted(), { status: 204 }]);
+	await h.plugin.onload();
+	await h.callback(h.start());
+	await h.plugin.logout();
+	assert.equal(h.requests[1].url, "https://photes.io/api/plugin/obsidian/v2/logout");
+	assert.deepEqual(JSON.parse(h.requests[1].body), { refresh_token: firstRefresh });
+	assert.equal(h.secrets.get(secretId), "");
+	assert.equal(h.plugin.hasSession, false);
+	await assert.rejects(h.plugin.listNotebooks(), { status: 401 });
+});
+
+test("rejects late refresh after logout and preserves no local credentials on failed revocation", async () => {
+	let finish;
+	const work = new Promise(resolve => { finish = resolve; });
+	const h = pluginHarness([() => work, { status: 503 }], { previous: { version: 3, pendingRotations: [] }, secret: firstRefresh });
+	await h.plugin.onload();
+	const access = h.plugin.listNotebooks();
+	access.catch(() => {});
+	while (h.requests.length === 0) await new Promise(resolve => setImmediate(resolve));
+	await assert.rejects(h.plugin.logout(), { status: 503 });
+	finish(minted(nextRefresh));
+	await assert.rejects(access, { status: 401 });
+	assert.equal(h.secrets.get(secretId), "");
+	assert.equal(h.requests.length, 2);
+});
+
+test("never creates a file after failed pagination or if the path is already taken", async () => {
 	for (const priorPath of [false, true]) {
-		const { plugin, created } = pluginHarness([
-			success({ plugin: "obsidian", access: "read", expires_at: expiry }),
+		const h = pluginHarness([
+			minted(),
 			success({ notebook, notes: [{ id: 13, content: "First" }], next_after: priorPath ? null : 13 }),
 			{ status: 503 },
-		], priorPath ? ["Pixno Imports/notebook-12.md"] : []);
-		try {
-			await plugin.connect(key);
-			await assert.rejects(plugin.importNotebook(12), { status: priorPath ? 409 : 503 });
-			assert.deepEqual(created, []);
-		} finally {
-			delete globalThis.pixnoTestRequest;
-		}
+		], { existingPaths: priorPath ? ["Pixno Imports/notebook-12.md"] : [] });
+		await h.plugin.onload();
+		await h.callback(h.start());
+		await assert.rejects(h.plugin.importNotebook(12), { status: priorPath ? 409 : 503 });
+		assert.deepEqual(h.created, []);
 	}
 });
 
-test("disconnect cancels the import without requesting further pages or writing a vault file", async () => {
-	const { plugin, created } = pluginHarness([success({ plugin: "obsidian", access: "read", expires_at: expiry })]);
-	try {
-		await plugin.connect(key);
-		let requested = 0;
-		let complete;
-		globalThis.pixnoTestRequest = () => {
-			requested++;
-			return new Promise(resolve => { complete = resolve; });
-		};
-		const importResult = plugin.importNotebook(12);
-		plugin.disconnect();
-		await assert.rejects(importResult, { status: 401 });
-		complete(success({ notebook, notes: [{ id: 13, content: "First" }], next_after: 13 }));
-		assert.equal(requested, 1);
-		assert.deepEqual(created, []);
-	} finally {
-		delete globalThis.pixnoTestRequest;
-	}
+test("does not let a late exchange replace a newer browser login", async () => {
+	let finish;
+	const work = new Promise(resolve => { finish = resolve; });
+	const h = pluginHarness([() => work, minted(nextRefresh)]);
+	await h.plugin.onload();
+	const first = h.callback(h.start());
+	const latest = h.start();
+	await h.callback(latest);
+	finish(minted(firstRefresh));
+	await first;
+	assert.equal(h.secrets.get(secretId), nextRefresh);
+	assert.equal(h.requests.length, 2);
 });

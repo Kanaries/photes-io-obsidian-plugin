@@ -4,7 +4,7 @@ import { Notebook, PixnoError } from "./service";
 
 function message(error: unknown) {
 	switch (error instanceof PixnoError ? error.status : 0) {
-		case 401: return "The key is invalid or has expired. Create a new key in Pixno.";
+		case 401: return "Your Pixno session has expired. Log in again.";
 		case 404: return "This notebook is no longer available.";
 		case 409: return "An import already exists at this path. Move it before importing another copy.";
 		case 413: return "This notebook or list is too large for the plugin to import.";
@@ -33,7 +33,6 @@ export class PixnoSettingsTab extends PluginSettingTab {
 			await action();
 		} catch (error) {
 			if (error instanceof PixnoError && error.status === 401) {
-				this.plugin.disconnect();
 				this.notebooks = [];
 				this.selection = undefined;
 			}
@@ -44,47 +43,34 @@ export class PixnoSettingsTab extends PluginSettingTab {
 		}
 	}
 
+	authorizationChanged(status: string) {
+		this.status = status;
+		if (this.containerEl?.isConnected) this.display();
+	}
+
 	display() {
 		const { containerEl } = this;
 		containerEl.empty();
 		containerEl.createEl("p", { text: "Import Pixno notebooks as Markdown. Each import creates a new file in Pixno Imports." });
 
-		if (!this.plugin.expiry) {
-			containerEl.createEl("a", {
-				text: "Create a Pixno access key",
-				href: this.plugin.integrationsUrl,
-				attr: { target: "_blank", rel: "noopener noreferrer" },
-			});
-			let key = "";
+		if (!this.plugin.hasSession || this.plugin.needsLogin || this.plugin.waiting) {
 			new Setting(containerEl)
-				.setName("Pixno access key")
-				.setDesc("Paste the key from Pixno. It stays in memory until Obsidian closes or the plugin unloads.")
-				.addText(input => {
-					input.inputEl.type = "password";
-					input.inputEl.autocomplete = "off";
-					input.inputEl.setAttribute("aria-label", "Pixno access key");
-					input.setDisabled(this.busy);
-					input.onChange(value => { key = value; });
-				})
-				.addButton(button => button.setButtonText("Connect").setDisabled(this.busy).onClick(() => {
-					const candidate = key;
-					key = "";
-					return this.run(async () => {
-						await this.plugin.connect(candidate);
-						this.status = "Connected to Pixno.";
-					});
-				}));
-		} else {
-			new Setting(containerEl)
-				.setName("Connected to Pixno")
-				.setDesc(`Key expires ${new Date(this.plugin.expiry).toLocaleString()}.`)
-				.addButton(button => button.setButtonText("Disconnect").setDisabled(this.busy).onClick(() => {
-					this.plugin.disconnect();
-					this.notebooks = [];
-					this.selection = undefined;
-					this.status = "Disconnected.";
+				.setName("Pixno")
+				.setDesc(this.plugin.waiting
+					? "Finish signing in and approving access in your browser, then return to Obsidian."
+					: "Log in through the browser to import your notebooks.")
+				.addButton(button => button.setButtonText(this.plugin.waiting ? "Start a new login" : "Log in to Pixno").setDisabled(this.busy).onClick(() => {
+					try {
+						this.plugin.beginLogin();
+						this.notebooks = [];
+						this.selection = undefined;
+						this.status = "Continue in your browser.";
+					} catch (error) {
+						this.status = message(error);
+					}
 					this.display();
 				}));
+		} else {
 			new Setting(containerEl).setName("Pixno notebooks")
 				.addButton(button => button.setButtonText("Load notebooks").setDisabled(this.busy).onClick(() => this.run(async () => {
 					this.notebooks = await this.plugin.listNotebooks();
@@ -109,6 +95,27 @@ export class PixnoSettingsTab extends PluginSettingTab {
 					})));
 			}
 		}
+		if (this.plugin.hasSession) {
+			new Setting(containerEl)
+				.setName("Pixno session")
+				.addButton(button => button.setButtonText("Log out").setDisabled(this.busy).onClick(() => this.run(async () => {
+					this.notebooks = [];
+					this.selection = undefined;
+					try {
+						await this.plugin.logout();
+						this.status = "Logged out of Pixno.";
+					} catch {
+						this.status = this.plugin.hasSession
+							? "Could not confirm logout. Review your session in Pixno Integrations."
+							: "Local session cleared. Review Pixno Integrations to revoke the server session.";
+					}
+				})));
+		}
+		containerEl.createEl("a", {
+			text: "Manage Pixno integrations",
+			href: this.plugin.integrationsUrl,
+			attr: { target: "_blank", rel: "noopener noreferrer" },
+		});
 		containerEl.createEl("p", { text: this.status, attr: { role: "status" } });
 	}
 }
