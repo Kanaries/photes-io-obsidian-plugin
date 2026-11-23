@@ -50,7 +50,11 @@ export class PixnoSettingsTab extends PluginSettingTab {
 		containerEl.createEl("p", { text: "Import Pixno notebooks as Markdown. Each import creates a new file in Pixno Imports." });
 
 		if (!this.plugin.expiry) {
-			containerEl.createEl("a", { text: "Create a Pixno access key", href: this.plugin.integrationsUrl });
+			containerEl.createEl("a", {
+				text: "Create a Pixno access key",
+				href: this.plugin.integrationsUrl,
+				attr: { target: "_blank", rel: "noopener noreferrer" },
+			});
 			let key = "";
 			new Setting(containerEl)
 				.setName("Pixno access key")
