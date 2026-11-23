@@ -52,7 +52,7 @@ export class PixnoSettingsTab extends PluginSettingTab {
 	display() {
 		const { containerEl } = this;
 		containerEl.empty();
-		containerEl.createEl("p", { text: "Import Pixno notebooks with source images. Each import creates a new file in Pixno Imports." });
+		containerEl.createEl("p", { text: "Import Pixno notebooks with source images. Images stay with their source notes." });
 
 		if (!this.plugin.hasSession || this.plugin.needsLogin || this.plugin.waiting) {
 			new Setting(containerEl)
@@ -96,10 +96,18 @@ export class PixnoSettingsTab extends PluginSettingTab {
 					})));
 			}
 		}
+        new Setting(containerEl).setName("Image folder").setDesc("Folder inside this vault for uploaded and imported images.")
+            .addText(text => text.setValue(this.plugin.preferences.imagePath).onChange(value => { void this.plugin.savePreferences({ imagePath: value }).catch(() => { this.status = "Use a valid folder inside this vault."; }); }));
+        new Setting(containerEl).setName("Notebook folder").setDesc("Folder inside this vault for imported and synchronized notebooks.")
+            .addText(text => text.setValue(this.plugin.preferences.syncPath).onChange(value => { void this.plugin.savePreferences({ syncPath: value }).catch(() => { this.status = "Use a valid folder inside this vault."; }); }));
+        new Setting(containerEl).setName("Automatically sync Pixno notes").setDesc("Check for changes every minute while Obsidian is open. Local edits are preserved and need review before that file can sync again.")
+            .addToggle(toggle => toggle.setValue(this.plugin.preferences.autoSync).onChange(value => this.plugin.savePreferences({ autoSync: value })))
+            .addButton(button => button.setButtonText("Sync notes now").onClick(() => this.plugin.syncNotes(true)));
 		if (this.plugin.hasSession) {
-            new Setting(containerEl).setName("Generate note from image")
-                .setDesc("GPT-5.4 mini. Uses Pixno AI credits, at least 4 per successful image. Saves in Pixno and appends to the open Markdown note, or creates a new note.")
-                .addButton(button => button.setButtonText("Choose image").setDisabled(this.busy).onClick(() => this.plugin.pickImage()));
+            new Setting(containerEl).setName("Note settings")
+                .setDesc("Generation uses your Pixno account model, language and note style. Use the image button or right-click an image to generate here.")
+                .addButton(button => button.setButtonText("Open Pixno note settings").onClick(() => window.open(`${this.plugin.integrationsUrl.replace(/\/account\/integrations$/, "")}/account/note`, "_blank", "noopener,noreferrer")));
+
 			new Setting(containerEl)
 				.setName("Pixno session")
 				.addButton(button => button.setButtonText("Log out").setDisabled(this.busy).onClick(() => this.run(async () => {

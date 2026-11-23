@@ -1,1 +1,3 @@
-/* The Pixno settings tab uses Obsidian's native controls. */
+.photes-button { display: inline-flex; align-items: center; justify-content: center; padding: 3px 6px; margin: 0 6px; vertical-align: middle; cursor: pointer; }
+.photes-button svg { width: 16px; height: 16px; }
+.photes-button:disabled { opacity: .5; cursor: wait; }
