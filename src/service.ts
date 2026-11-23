@@ -98,7 +98,7 @@ export function createPixnoReadClient(request: Transport, apiOrigin = pixnoOrigi
 	function errorResponse(response: Awaited<ReturnType<Transport>>) {
 		try {
 			const value = object(response.json);
-			const code = (value.error === "plugin_unavailable" || value.error === "image_permission_required") ? value.error : undefined;
+			const code = (value.error === "plugin_unavailable" || value.error === "image_permission_required" || value.error === "mobile_permission_required") ? value.error : undefined;
 			return new PixnoError(response.status, code);
 		} catch {
 			return new PixnoError(response.status);
@@ -148,11 +148,26 @@ export function createPixnoReadClient(request: Transport, apiOrigin = pixnoOrigi
             if (typeof value.revision !== "string" || !/^[a-f0-9]{64}$/.test(value.revision)) throw new PixnoError(502);
             return value.revision;
         },
-        async mobile(key: string, signal?: AbortSignal) {
+        async mobileStatus(key: string, loginId: string, signal?: AbortSignal) {
+            if (!/^[a-f0-9]{64}$/.test(loginId)) throw new PixnoError(400);
+            const value = await get("/mobile/status", key, budget(signal), new URLSearchParams({ login_id: loginId }));
+            if (typeof value.connected !== "boolean") throw new PixnoError(502);
+            return value.connected;
+        },
+        async mobile(key: string, signal?: AbortSignal, notebookId?: number) {
             if (!isAccessKey(key)) throw new PixnoError(401);
-            const response = await send({ url: new URL(`${API_ROOT}/mobile`, origin).href, method: "POST", headers: { Authorization: `Bearer ${key}` } }, budget(signal));
+            const response = await send({ url: new URL(`${API_ROOT}/mobile`, origin).href, method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ notebook_id: notebookId === undefined ? null : positiveId(notebookId) }),
+            }, budget(signal));
             if (response.status !== 200) throw errorResponse(response);
-            return positiveId(object(response.json).notebook_id);
+            const value = object(response.json);
+            const id = positiveId(value.notebook_id);
+            if (notebookId !== undefined && id !== notebookId) throw new PixnoError(502);
+            if (typeof value.login_path !== "string" || !value.login_path.startsWith("/auth/quick-login?")) throw new PixnoError(502);
+            const url = new URL(value.login_path, origin);
+            if (url.origin !== origin || url.pathname !== "/auth/quick-login" || !/^#[A-Za-z0-9_-]{43}$/.test(url.hash)
+                || url.searchParams.size !== 1 || url.searchParams.get("next") !== `/workspace/notebook?notebook_id=${id}`) throw new PixnoError(502);
+            return { notebookId: id, loginUrl: url.href };
         },
 		async exchange(code: string, verifier: string, signal?: AbortSignal) {
 			if (!isAuthCode(code) || !isAuthCode(verifier)) throw new PixnoError(400);

@@ -55,7 +55,7 @@ export class PixnoAuthorization {
 			state,
 			code_challenge: base64url(sha256(new TextEncoder().encode(verifier))),
 			code_challenge_method: "S256",
-            scope: "images",
+            scope: "images-mobile",
 		}).toString();
 		return url.href;
 	}

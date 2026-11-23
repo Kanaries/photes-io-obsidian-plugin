@@ -25,6 +25,12 @@ export default class PixnoPlugin extends Plugin {
     private syncing = false;
     private syncOffset = 0;
     private mobileModal?: MobileUploadModal;
+    private mobileNotebookId?: number;
+    private pendingMobileLogins = new Map<number, { hash: string; until: number; modal: MobileUploadModal }>();
+    private mobileSyncing = false;
+    private stopped = false;
+    private mobileOffset = 0;
+    private mobileFailures = new Set<number>();
     private originKey = "";
     private importing = false;
     private generating = false;
@@ -35,6 +41,7 @@ export default class PixnoPlugin extends Plugin {
 	readonly integrationsUrl = `${pixnoOrigin()}/account/integrations`;
 
 	async onload() {
+        this.stopped = false;
 		const previous = await this.loadData();
 		// Keep environment-specific sessions isolated in the same test vault.
 		const origin = pixnoOrigin();
@@ -84,6 +91,7 @@ export default class PixnoPlugin extends Plugin {
         this.addCommand({ id: "generate-image-note", name: "Generate note from image", callback: () => this.pickImage() });
         this.addCommand({ id: "sync-notes", name: "Sync notes", callback: () => { void this.syncNotes(true); } });
         this.addCommand({ id: "upload-image-from-mobile", name: "Upload image from mobile", callback: () => { void this.uploadFromPhone(); } });
+        this.registerInterval(window.setInterval(() => { void this.syncMobileNotes(); }, 10_000));
         this.registerInterval(window.setInterval(() => { if (this.preferences.autoSync) void this.syncNotes(); }, 60_000));
         this.registerEditorExtension(imageActionExtension((view, image) => this.generateEditorImage(view, image)));
         this.registerMarkdownPostProcessor((element, context) => {
@@ -154,19 +162,23 @@ export default class PixnoPlugin extends Plugin {
 		return stored;
 	}
 
-	onunload() { this.mobileModal?.close(); this.authorization?.stop(); }
+	onunload() { this.stopped = true; this.pendingMobileLogins.clear(); this.mobileModal?.close(); this.authorization?.stop(); }
 
 	get waiting() { return this.authorization.waiting; }
 	get hasSession() { return this.authorization.hasSession; }
 	get needsLogin() { return this.authorization.needsLogin; }
 
 	beginLogin() {
-		this.preferences.autoSync = false;
+		this.pendingMobileLogins.clear();
+        this.mobileModal?.close();
+        this.preferences.autoSync = false;
         this.syncRecords = {};
         window.open(this.authorization.beginLogin(), "_blank", "noopener,noreferrer");
 	}
 
 	async logout() {
+        this.mobileModal?.close();
+        this.pendingMobileLogins.clear();
         this.mobileModal?.close();
         this.preferences.autoSync = false;
         this.syncRecords = {};
@@ -360,6 +372,17 @@ export default class PixnoPlugin extends Plugin {
             if (signal.aborted) throw new PixnoError(401);
             this.syncRecords[String(id)] = { path, digest: digest(markdown), revision, ...(record?.block ? { block: record.block } : {}) };
             await this.writeSettings();
+            if (record?.block && this.mobileNotebookId === id && data.notes.some(note => note.trim())) {
+                this.mobileModal?.showReceived(data.notes.flatMap((content, index) => {
+                    if (!content.trim()) return [];
+                    const heading = content.match(/^\s*#{1,6}\s+(.+)$/m)?.[1];
+                    const title = (heading ?? "Untitled note").replace(/\s+#+\s*$/, "").trim();
+                    return [{ id: data.noteIds[index], title }];
+                }));
+            }
+            if (record?.block && record.digest !== digest(markdown) && data.notes.some(note => note.trim())) {
+                new Notice("Photos and notes received from your phone.");
+            }
         } catch (error) {
             for (const { file, digest } of markdownWritten ? [] : created) {
                 try {
@@ -413,6 +436,46 @@ export default class PixnoPlugin extends Plugin {
         } finally { this.importing = false; }
     }
 
+    private trackMobileLogin(id: number, url: string, modal: MobileUploadModal) {
+        const token = new URL(url).hash.slice(1);
+        this.pendingMobileLogins.set(id, { hash: digest(token), until: Date.now() + 240_000, modal });
+    }
+
+    private async syncMobileNotes() {
+        if (this.stopped || this.mobileSyncing || !this.hasSession || this.needsLogin) return;
+        this.mobileSyncing = true;
+        const signal = this.authorization.signal;
+        try {
+            for (const [id, pending] of this.pendingMobileLogins) {
+                if (signal.aborted) return;
+                if (Date.now() > pending.until) { this.pendingMobileLogins.delete(id); continue; }
+                try {
+                    const connected = await this.read((key, current) => this.client.mobileStatus(key, pending.hash, current));
+                    if (signal.aborted) return;
+                    // A refreshed QR must not change state from an older in-flight response.
+                    if (connected && this.pendingMobileLogins.get(id) === pending) {
+                        this.pendingMobileLogins.delete(id);
+                        pending.modal.showConnected();
+                    }
+                } catch { /* Retry confirmation without blocking note delivery. */ }
+            }
+            const ids = Object.entries(this.syncRecords).filter(([, record]) => record.block).map(([id]) => Number(id));
+            // Bound background work and rotate through all phone notebooks, even with Auto Sync off.
+            for (let i = 0; i < Math.min(3, ids.length); i++) {
+                if (signal.aborted) return;
+                const id = ids[this.mobileOffset % ids.length];
+                this.mobileOffset = (this.mobileOffset + 1) % ids.length;
+                try { await this.syncNotebook(id); this.mobileFailures.delete(id); }
+                catch {
+                    if (!signal.aborted && !this.mobileFailures.has(id)) {
+                        this.mobileFailures.add(id);
+                        new Notice("Phone sync paused. Check your connection and local edits.");
+                    }
+                }
+            }
+        } finally { this.mobileSyncing = false; }
+    }
+
     async uploadFromPhone() {
         if (!this.hasSession || this.needsLogin) { new Notice("Log in to Pixno in plugin settings first."); return; }
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -422,7 +485,8 @@ export default class PixnoPlugin extends Plugin {
         const signal = this.authorization.signal;
         try {
             const key = await this.authorization.access();
-            const id = await this.client.mobile(key, signal);
+            const mobile = await this.client.mobile(key, signal);
+            const id = mobile.notebookId;
             if (signal.aborted) throw new PixnoError(401);
             const initial = "\nWaiting for images from your phone…\n";
             await this.app.vault.process(target, text => {
@@ -432,11 +496,21 @@ export default class PixnoPlugin extends Plugin {
             if (signal.aborted) throw new PixnoError(401);
             this.syncRecords[String(id)] = { path: target.path, digest: digest(initial), revision: "", block: String(id) };
             await this.writeSettings();
-            const url = new URL("/workspace/notebook", pixnoOrigin());
-            url.searchParams.set("notebook_id", String(id));
             this.mobileModal?.close();
-            this.mobileModal = new MobileUploadModal(this.app, url.href, () => this.syncNotebook(id));
-            this.mobileModal.open();
-        } catch { new Notice("Could not start mobile upload. Check Pixno before trying again."); }
+            const modal = new MobileUploadModal(this.app, mobile.loginUrl, async () => {
+                if (signal.aborted) throw new PixnoError(401);
+                const access = await this.authorization.access();
+                const next = await this.client.mobile(access, signal, id);
+                this.trackMobileLogin(id, next.loginUrl, modal);
+                return next.loginUrl;
+            });
+            this.mobileModal = modal;
+            this.mobileNotebookId = id;
+            this.trackMobileLogin(id, mobile.loginUrl, modal);
+            modal.open();
+            void this.syncMobileNotes();
+        } catch (error) { new Notice(error instanceof PixnoError && error.code === "mobile_permission_required"
+            ? "Log out and log in again to allow phone sign-in."
+            : "Could not create the login QR. Wait a moment and try again."); }
     }
 }

@@ -1,6 +1,6 @@
 {
 	"name": "image-notes-photes-io",
-	"version": "0.4.2",
+	"version": "0.4.3",
 	"description": "Generate image notes and sync Pixno notebooks with Obsidian.",
 	"main": "main.js",
 	"scripts": {
