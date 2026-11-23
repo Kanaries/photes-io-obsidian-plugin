@@ -52,14 +52,13 @@ export class PixnoSettingsTab extends PluginSettingTab {
 	display() {
 		const { containerEl } = this;
 		containerEl.empty();
-		containerEl.createEl("p", { text: "Import Pixno notebooks with source images. Images stay with their source notes." });
 
 		if (!this.plugin.hasSession || this.plugin.needsLogin || this.plugin.waiting) {
 			new Setting(containerEl)
 				.setName("Pixno")
 				.setDesc(this.plugin.waiting
-					? "Finish signing in and approving access in your browser, then return to Obsidian."
-					: "Log in through the browser to import your notebooks.")
+					? "Continue in your browser."
+					: "")
 				.addButton(button => button.setButtonText(this.plugin.waiting ? "Start a new login" : "Log in to Pixno").setDisabled(this.busy).onClick(() => {
 					try {
 						this.plugin.beginLogin();
@@ -96,17 +95,17 @@ export class PixnoSettingsTab extends PluginSettingTab {
 					})));
 			}
 		}
-        new Setting(containerEl).setName("Image folder").setDesc("Folder inside this vault for uploaded and imported images.")
+        new Setting(containerEl).setName("Image folder")
             .addText(text => text.setValue(this.plugin.preferences.imagePath).onChange(value => { void this.plugin.savePreferences({ imagePath: value }).catch(() => { this.status = "Use a valid folder inside this vault."; }); }));
-        new Setting(containerEl).setName("Notebook folder").setDesc("Folder inside this vault for imported and synchronized notebooks.")
+        new Setting(containerEl).setName("Notebook folder")
             .addText(text => text.setValue(this.plugin.preferences.syncPath).onChange(value => { void this.plugin.savePreferences({ syncPath: value }).catch(() => { this.status = "Use a valid folder inside this vault."; }); }));
-        new Setting(containerEl).setName("Automatically sync Pixno notes").setDesc("Check for changes every minute while Obsidian is open. Local edits are preserved and need review before that file can sync again.")
+        new Setting(containerEl).setName("Automatically sync Pixno notes").setDesc("Every minute. Skips locally edited files.")
             .addToggle(toggle => toggle.setValue(this.plugin.preferences.autoSync).onChange(value => this.plugin.savePreferences({ autoSync: value })))
             .addButton(button => button.setButtonText("Sync notes now").onClick(() => this.plugin.syncNotes(true)));
 		if (this.plugin.hasSession) {
             new Setting(containerEl).setName("Note settings")
-                .setDesc("Generation uses your Pixno account model, language and note style. Use the image button or right-click an image to generate here.")
-                .addButton(button => button.setButtonText("Open Pixno note settings").onClick(() => window.open(`${this.plugin.integrationsUrl.replace(/\/account\/integrations$/, "")}/account/note`, "_blank", "noopener,noreferrer")));
+                .setDesc("Model, language and note style.")
+                .addButton(button => button.setButtonText("Open settings").onClick(() => window.open(`${this.plugin.integrationsUrl.replace(/\/account\/integrations$/, "")}/account/note`, "_blank", "noopener,noreferrer")));
 
 			new Setting(containerEl)
 				.setName("Pixno session")

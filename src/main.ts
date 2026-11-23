@@ -232,7 +232,7 @@ export default class PixnoPlugin extends Plugin {
         if (!this.hasSession || this.needsLogin) { new Notice("Log in to Pixno in plugin settings first."); return; }
         this.generating = true;
         const signal = this.authorization.signal;
-        const notice = new Notice("Generating note using your Pixno note settings. Uses Pixno AI credits.", 0);
+        const notice = new Notice("Generating… Uses Pixno AI credits.", 0);
         try {
             const { upload, target, anchor } = await prepare();
             if (signal.aborted) throw new PixnoError(401);
@@ -244,7 +244,7 @@ export default class PixnoPlugin extends Plugin {
                 if (signal.aborted) throw new PixnoError(401);
                 return insertAtAnchor(text, anchor, `\n\n${result.content}\n`);
             });
-            new Notice("Generated note inserted below the image and saved in Pixno.");
+            new Notice("Note generated.");
         } catch (error) { new Notice(this.generationError(error)); }
         finally { notice.hide(); this.generating = false; }
     }
