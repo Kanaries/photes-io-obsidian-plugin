@@ -25,6 +25,7 @@ export default class PixnoPlugin extends Plugin {
     private syncing = false;
     private syncOffset = 0;
     private mobileModal?: MobileUploadModal;
+    private mobileNotebookId?: number;
     private pendingMobileLogins = new Map<number, { hash: string; until: number; modal: MobileUploadModal }>();
     private mobileSyncing = false;
     private stopped = false;
@@ -371,6 +372,14 @@ export default class PixnoPlugin extends Plugin {
             if (signal.aborted) throw new PixnoError(401);
             this.syncRecords[String(id)] = { path, digest: digest(markdown), revision, ...(record?.block ? { block: record.block } : {}) };
             await this.writeSettings();
+            if (record?.block && this.mobileNotebookId === id && data.notes.some(note => note.trim())) {
+                this.mobileModal?.showReceived(data.notes.flatMap((content, index) => {
+                    if (!content.trim()) return [];
+                    const heading = content.match(/^\s*#{1,6}\s+(.+)$/m)?.[1];
+                    const title = (heading ?? "Untitled note").replace(/\s+#+\s*$/, "").trim();
+                    return [{ id: data.noteIds[index], title }];
+                }));
+            }
             if (record?.block && record.digest !== digest(markdown) && data.notes.some(note => note.trim())) {
                 new Notice("Photos and notes received from your phone.");
             }
@@ -443,10 +452,10 @@ export default class PixnoPlugin extends Plugin {
                 try {
                     const connected = await this.read((key, current) => this.client.mobileStatus(key, pending.hash, current));
                     if (signal.aborted) return;
-                    // A refreshed QR must not be closed by an older in-flight response.
+                    // A refreshed QR must not change state from an older in-flight response.
                     if (connected && this.pendingMobileLogins.get(id) === pending) {
                         this.pendingMobileLogins.delete(id);
-                        pending.modal.close();
+                        pending.modal.showConnected();
                     }
                 } catch { /* Retry confirmation without blocking note delivery. */ }
             }
@@ -496,6 +505,7 @@ export default class PixnoPlugin extends Plugin {
                 return next.loginUrl;
             });
             this.mobileModal = modal;
+            this.mobileNotebookId = id;
             this.trackMobileLogin(id, mobile.loginUrl, modal);
             modal.open();
             void this.syncMobileNotes();

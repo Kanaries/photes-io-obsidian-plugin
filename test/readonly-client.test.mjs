@@ -529,12 +529,12 @@ test("rejects a QR for a different origin, notebook or malformed one-time token"
  }
 });
 
-test("phone login closes its modal only after confirmation and sync continues with Auto Sync off", async () => {
+test("phone login changes modal state only after confirmation and sync continues with Auto Sync off", async () => {
  const h=pluginHarness([minted()]);await h.plugin.onload();await h.callback(h.start());
  let connected=false, closed=0;const synced=[];
  h.plugin.client={mobileStatus:async()=>connected};
  h.plugin.syncRecords["12"]={path:"test.md",digest:"a".repeat(64),revision:"",block:"12"};
- h.plugin.pendingMobileLogins.set(12,{hash:"a".repeat(64),until:Date.now()+60_000,modal:{close(){closed++;}}});
+ h.plugin.pendingMobileLogins.set(12,{hash:"a".repeat(64),until:Date.now()+60_000,modal:{showConnected(){closed++;},close(){throw new Error("must stay open");}}});
  h.plugin.syncNotebook=async id=>{synced.push(id);};
  await h.plugin.syncMobileNotes();assert.equal(closed,0);
  connected=true;await h.plugin.syncMobileNotes();assert.equal(closed,1);
@@ -554,12 +554,29 @@ test("phone delivery reports success only after images and text are written, wit
   readBinary:async f=>f.bytes,process:async(f,update)=>{text=update(text);},
  };
  h.plugin.client={download:async()=>({id:12,title:"Phone",notes:["# Test\nbody"],noteIds:[13],imageNoteIds:[13]}),image:async()=>new Uint8Array([137,80,78,71]).buffer};
+ const received=[];h.plugin.mobileNotebookId=12;h.plugin.mobileModal={showReceived:notes=>received.push(notes)};
  globalThis.pixnoNotices=[];
  await h.plugin.importWithImages(12,{path:"test.md",block:"12",digest:digest(initial),revision:""},"v1");
  assert.match(text,/before<!-- pixno:12:start -->/);assert.match(text,/!\[\[assets\//);assert.match(text,/body/);assert.ok(text.endsWith("<!-- pixno:12:end -->after"));
- assert.equal(globalThis.pixnoNotices.length,1);
+ assert.equal(globalThis.pixnoNotices.length,1);assert.deepEqual(received.at(-1),[{id:13,title:"Test"}]);
  await h.plugin.importWithImages(12,h.plugin.syncRecords["12"],"v2");assert.equal(globalThis.pixnoNotices.length,1);
  h.plugin.client.image=async()=>{throw new Error("offline");};
  await assert.rejects(h.plugin.importWithImages(12,h.plugin.syncRecords["12"],"v3"));assert.equal(globalThis.pixnoNotices.length,1);
  delete globalThis.pixnoNotices;
+});
+
+test("mobile dialog replaces the QR with connection state and saved note titles", async () => {
+ globalThis.window.clearTimeout=clearTimeout;
+ const {MobileUploadModal}=await moduleFor("src/mobile.ts");
+ const modal=new MobileUploadModal({},"https://example.invalid",async()=>"");
+ const rendered=[];
+ const element={empty(){rendered.length=0;},createEl(tag,options){rendered.push({tag,...options});return element;}};
+ modal.contentEl=element;
+ modal.showConnected();
+ assert.ok(rendered.some(x=>x.text==="Phone connected"));
+ assert.ok(rendered.some(x=>x.text==="Waiting for images and notes…"));
+ modal.showReceived([{id:1,title:"First note"},{id:2,title:"<img src=x onerror=alert(1)>"}]);
+ assert.deepEqual(rendered.filter(x=>x.tag==="li").map(x=>x.text),["First note","<img src=x onerror=alert(1)>"]);
+ modal.showConnected();assert.equal(rendered.filter(x=>x.tag==="li").length,2);
+ modal.onClose();modal.showReceived([{id:3,title:"Later"}]);assert.equal(rendered.length,0);
 });
