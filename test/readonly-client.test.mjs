@@ -12,13 +12,13 @@ const obsidianShim = {
 		builder.onLoad({ filter: /^obsidian$/, namespace: "test" }, () => ({
 			contents: `
 				export class Modal {}
-                export class TFolder {}
+                export class TFolder { static [Symbol.hasInstance](v) { return v?.isFolder === true; } }
 				export class Plugin { registerInterval() {} addRibbonIcon() {} addCommand() {} registerEditorExtension() {} registerMarkdownPostProcessor() {} registerEvent() {} }
-                export class TFile {}
+                export class TFile { static [Symbol.hasInstance](v) { return v?.isFile === true; } }
                 export class MarkdownView {}
                 export class Menu {}
                 export const setIcon = () => {};
-                export class Notice { hide() {} }
+                export class Notice { constructor(text) { globalThis.pixnoNotices?.push(text); } hide() {} }
 				export class PluginSettingTab {}
 				export class Setting {}
 				export const normalizePath = path => path;
@@ -527,4 +527,39 @@ test("rejects a QR for a different origin, notebook or malformed one-time token"
   const client = createPixnoReadClient(async () => success({ notebook_id:123, login_path }));
   await assert.rejects(client.mobile(key), { status:502 });
  }
+});
+
+test("phone login closes its modal only after confirmation and sync continues with Auto Sync off", async () => {
+ const h=pluginHarness([minted()]);await h.plugin.onload();await h.callback(h.start());
+ let connected=false, closed=0;const synced=[];
+ h.plugin.client={mobileStatus:async()=>connected};
+ h.plugin.syncRecords["12"]={path:"test.md",digest:"a".repeat(64),revision:"",block:"12"};
+ h.plugin.pendingMobileLogins.set(12,{hash:"a".repeat(64),until:Date.now()+60_000,modal:{close(){closed++;}}});
+ h.plugin.syncNotebook=async id=>{synced.push(id);};
+ await h.plugin.syncMobileNotes();assert.equal(closed,0);
+ connected=true;await h.plugin.syncMobileNotes();assert.equal(closed,1);
+ await h.plugin.syncMobileNotes();assert.equal(closed,1);assert.deepEqual(synced,[12,12,12]);
+ assert.equal(h.plugin.preferences.autoSync,false);
+ h.plugin.onunload();await h.plugin.syncMobileNotes();assert.equal(synced.length,3);
+});
+
+test("phone delivery reports success only after images and text are written, without duplicate notices", async () => {
+ const h=pluginHarness([minted()]);await h.plugin.onload();await h.callback(h.start());
+ const {digest}=await moduleFor("src/sync-state.ts");
+ const initial="Waiting";let text=`before<!-- pixno:12:start -->${initial}<!-- pixno:12:end -->after`;
+ const files=new Map([["test.md",{isFile:true,path:"test.md"}]]);
+ h.plugin.app.vault={
+  getAbstractFileByPath:path=>files.get(path),createFolder:async path=>files.set(path,{isFolder:true}),
+  createBinary:async(path,bytes)=>{const f={isFile:true,path,bytes};files.set(path,f);return f;},
+  readBinary:async f=>f.bytes,process:async(f,update)=>{text=update(text);},
+ };
+ h.plugin.client={download:async()=>({id:12,title:"Phone",notes:["# Test\nbody"],noteIds:[13],imageNoteIds:[13]}),image:async()=>new Uint8Array([137,80,78,71]).buffer};
+ globalThis.pixnoNotices=[];
+ await h.plugin.importWithImages(12,{path:"test.md",block:"12",digest:digest(initial),revision:""},"v1");
+ assert.match(text,/before<!-- pixno:12:start -->/);assert.match(text,/!\[\[assets\//);assert.match(text,/body/);assert.ok(text.endsWith("<!-- pixno:12:end -->after"));
+ assert.equal(globalThis.pixnoNotices.length,1);
+ await h.plugin.importWithImages(12,h.plugin.syncRecords["12"],"v2");assert.equal(globalThis.pixnoNotices.length,1);
+ h.plugin.client.image=async()=>{throw new Error("offline");};
+ await assert.rejects(h.plugin.importWithImages(12,h.plugin.syncRecords["12"],"v3"));assert.equal(globalThis.pixnoNotices.length,1);
+ delete globalThis.pixnoNotices;
 });

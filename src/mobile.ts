@@ -3,14 +3,13 @@ import { toCanvas } from "qrcode";
 
 export class MobileUploadModal extends Modal {
     private closed = false;
-    private timer: number | undefined;
     private expiry: number | undefined;
-    constructor(app: App, private url: string, private poll: () => Promise<void>, private refresh: () => Promise<string>) { super(app); }
+    constructor(app: App, private url: string, private refresh: () => Promise<string>) { super(app); }
     onOpen() {
         this.contentEl.createEl("h2", { text: "Upload images from your phone" });
-        this.contentEl.createEl("p", { text: "Scan to sign your phone into this Pixno account. Keep this window open." });
+        this.contentEl.createEl("p", { text: "Scan to sign your phone into this Pixno account." });
         const canvas = this.contentEl.createEl("canvas");
-        const status = this.contentEl.createEl("p", { text: "Waiting for notes…", attr: { role: "status" } });
+        const status = this.contentEl.createEl("p", { text: "Waiting for phone…", attr: { role: "status" } });
         const button = this.contentEl.createEl("button", { text: "Refresh QR" });
         const render = async () => {
             await toCanvas(canvas, this.url, { width: 260, margin: 2 });
@@ -30,21 +29,15 @@ export class MobileUploadModal extends Modal {
                 if (this.closed) return;
                 this.url = url;
                 await render();
-                status.setText("Waiting for notes…");
+                status.setText("Waiting for phone…");
             } catch { if (!this.closed) status.setText("Could not refresh QR. Wait a moment and retry."); }
             finally { button.disabled = false; }
         });
-        const check = async () => {
-            if (this.closed) return;
-            try { await this.poll(); }
-            catch { if (!this.closed) status.setText("Sync paused. Check your connection and local edits."); }
-            if (!this.closed) this.timer = window.setTimeout(check, 10_000);
-        };
-        void check();
+
     }
     onClose() {
         this.closed = true; this.url = "";
-        window.clearTimeout(this.timer); window.clearTimeout(this.expiry);
+        window.clearTimeout(this.expiry);
         this.contentEl.empty();
     }
 }

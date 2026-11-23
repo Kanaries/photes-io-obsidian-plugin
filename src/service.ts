@@ -148,6 +148,12 @@ export function createPixnoReadClient(request: Transport, apiOrigin = pixnoOrigi
             if (typeof value.revision !== "string" || !/^[a-f0-9]{64}$/.test(value.revision)) throw new PixnoError(502);
             return value.revision;
         },
+        async mobileStatus(key: string, loginId: string, signal?: AbortSignal) {
+            if (!/^[a-f0-9]{64}$/.test(loginId)) throw new PixnoError(400);
+            const value = await get("/mobile/status", key, budget(signal), new URLSearchParams({ login_id: loginId }));
+            if (typeof value.connected !== "boolean") throw new PixnoError(502);
+            return value.connected;
+        },
         async mobile(key: string, signal?: AbortSignal, notebookId?: number) {
             if (!isAccessKey(key)) throw new PixnoError(401);
             const response = await send({ url: new URL(`${API_ROOT}/mobile`, origin).href, method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
