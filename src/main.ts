@@ -422,7 +422,8 @@ export default class PixnoPlugin extends Plugin {
         const signal = this.authorization.signal;
         try {
             const key = await this.authorization.access();
-            const id = await this.client.mobile(key, signal);
+            const mobile = await this.client.mobile(key, signal);
+            const id = mobile.notebookId;
             if (signal.aborted) throw new PixnoError(401);
             const initial = "\nWaiting for images from your phone…\n";
             await this.app.vault.process(target, text => {
@@ -432,11 +433,15 @@ export default class PixnoPlugin extends Plugin {
             if (signal.aborted) throw new PixnoError(401);
             this.syncRecords[String(id)] = { path: target.path, digest: digest(initial), revision: "", block: String(id) };
             await this.writeSettings();
-            const url = new URL("/workspace/notebook", pixnoOrigin());
-            url.searchParams.set("notebook_id", String(id));
-            this.mobileModal?.close();
-            this.mobileModal = new MobileUploadModal(this.app, url.href, () => this.syncNotebook(id));
+                        this.mobileModal?.close();
+            this.mobileModal = new MobileUploadModal(this.app, mobile.loginUrl, () => this.syncNotebook(id), async () => {
+                if (signal.aborted) throw new PixnoError(401);
+                const access = await this.authorization.access();
+                return (await this.client.mobile(access, signal, id)).loginUrl;
+            });
             this.mobileModal.open();
-        } catch { new Notice("Could not start mobile upload. Check Pixno before trying again."); }
+        } catch (error) { new Notice(error instanceof PixnoError && error.code === "mobile_permission_required"
+            ? "Log out and log in again to allow phone sign-in."
+            : "Could not create the login QR. Wait a moment and try again."); }
     }
 }

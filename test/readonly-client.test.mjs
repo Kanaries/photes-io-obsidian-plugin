@@ -484,10 +484,10 @@ test("sync revision checks and mobile creation never expose a bearer in a QR URL
     const seen = [];
     const client = createPixnoReadClient(async request => {
         seen.push(request);
-        return request.method === "POST" ? success({ notebook_id: 123 }) : success({ revision: "a".repeat(64) });
+        return request.method === "POST" ? success({ notebook_id: 123, login_path: `/auth/quick-login?next=${encodeURIComponent("/workspace/notebook?notebook_id=123")}#${"A".repeat(43)}` }) : success({ revision: "a".repeat(64) });
     });
     assert.equal(await client.revision(key, 123), "a".repeat(64));
-    assert.equal(await client.mobile(key), 123);
+    assert.deepEqual(await client.mobile(key), { notebookId: 123, loginUrl: `https://photes.io/auth/quick-login?next=${encodeURIComponent("/workspace/notebook?notebook_id=123")}#${"A".repeat(43)}` });
     assert.equal(seen[1].url, "https://photes.io/api/plugin/obsidian/v2/mobile");
     assert.deepEqual(seen[1].headers, { Authorization: `Bearer ${key}` });
     let attempts = 0;
@@ -519,4 +519,11 @@ test("automatic sync skips unchanged revisions and advances past a local conflic
     assert.deepEqual(imported, [13, 14]);
     assert.equal(h.plugin.syncing, false);
     assert.equal(h.plugin.importing, false);
+});
+
+test("rejects a QR for a different origin, notebook or malformed one-time token", async () => {
+ for (const login_path of ["https://evil.test/auth/quick-login#"+"A".repeat(43), "/workspace/notebook?notebook_id=123", "/auth/quick-login?next=%2Fworkspace%2Fnotebook%3Fnotebook_id%3D999#"+"A".repeat(43)]) {
+  const client = createPixnoReadClient(async () => success({ notebook_id:123, login_path }));
+  await assert.rejects(client.mobile(key), { status:502 });
+ }
 });
