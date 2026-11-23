@@ -1,66 +1,17 @@
-# Pixno(photes.io) Obsidian Plugin
+# Pixno for Obsidian
 
-Welcome to the Pixno(photes.io) Obsidian Plugin! This plugin helps you generate notes from photos, leveraging advanced AI capabilities.
+Import a Pixno notebook as a Markdown file in your Obsidian vault.
 
-## Table of Contents
-- [Photes IO Obsidian Plugin](#photes-io-obsidian-plugin)
-  - [Table of Contents](#table-of-contents)
-  - [Requirements](#requirements)
-  - [Features](#features)
-  - [Installation](#installation)
-  - [Usage](#usage)
-  - [Payment and Credits](#payment-and-credits)
-  - [Support and Feedback](#support-and-feedback)
-  - [License](#license)
-  - [Thanks](#thanks)
+1. Sign in to Pixno in your browser and open [Account → Integrations](https://photes.io/account/integrations).
+2. Create an Obsidian access key and copy it. In the Obsidian plugin settings, paste the key and select **Connect**.
+3. Select **Load notebooks**, choose a notebook, then select **Import Markdown**.
 
-## Requirements
+The key expires after 24 hours. Pixno's Integrations page shows the last use and lets you revoke the key. The plugin keeps it in memory until you disconnect, close Obsidian or unload the plugin.
 
-- **Photes.IO Account**: You need to register an account on [Photes.IO](https://photes.io) to access the AI APIs and features.
-- **Network Connection**: A stable internet connection is required to upload images to the AI service for note generation.
+Each import creates one file in `Pixno Imports`. Move an earlier copy before importing the notebook again. Text from each note is included in ID order. This version imports Markdown text. Source image attachments, automatic sync, uploads, AI note generation and mobile QR sign-in are unavailable.
 
-For more information, please visit:
-- [Photes.IO Website](https://photes.io)
-- [Photes.IO Privacy Policy](https://photes.io/privacy)
-- [Photes.IO Terms of Service](https://photes.io/terms)
+## Development
 
-## Features
+Use `yarn install --frozen-lockfile`, `yarn test`, and `yarn build`. The build targets `https://photes.io` by default. To test against a Pixno Preview that has v2 enabled, set `PIXNO_OBSIDIAN_API_ORIGIN` to its HTTPS origin before building. Only use test keys with Preview builds.
 
-- [x] Convert your images into text notes in real-time using AI.
-
-## Installation
-
-1. Open Obsidian.
-2. Navigate to the "Settings" menu.
-3. Go to the "Community Plugins" section.
-4. Click on "Browse" and search for "Photes IO".
-5. Click "Install" and then "Enable".
-
-## Usage
-
-1. **Login to Photes.IO**: Make sure you are logged into your Photes.IO account.
-2. **Capture Photo**:
-    - Click the camera icon in the toolbar.
-    - Choose a photo to generate notes for.
-3. **Generate Notes from Existing Photos**:
-    - Select a photo in your notebook.
-    - Click the camera icon before the photo to generate notes.
-
-## Payment and Credits
-
-- **Free Users**: Upon registration, free users will receive a default amount of credits to use the AI API for generating notes from images.
-- **Additional Credits**: If you use all of your default credits, you will need to purchase additional credits to continue using the AI services.
-
-For more details on pricing and purchasing credits, please visit our [Pricing Page](https://photes.io/pricing).
-
-## Support and Feedback
-
-If you have any issues, questions, or feedback, please visit our [support page](https://photes.io/support) or contact us directly at support@photes.io.
-
-## License
-2024 Kanaries Data Inc. All rights reserved.
-Please see the [LICENSE](LICENSE) file.
-
-## Thanks
-
-Thank you to them makers of [Image Context Menus](https://github.com/NomarCub/obsidian-copy-url-in-preview), as it was a greate reference for reading image in the markdown.
+For help, contact [Pixno support](https://photes.io/support). See [LICENSE](LICENSE).
