@@ -6,11 +6,19 @@ import { build } from "esbuild";
 const obsidianShim = {
 	name: "obsidian-test-shim",
 	setup(builder) {
+        builder.onResolve({ filter: /^@codemirror\// }, args => ({ path: args.path, namespace: "cm-test" }));
+        builder.onLoad({ filter: /.*/, namespace: "cm-test" }, () => ({ contents: `export class WidgetType {} export const ViewPlugin = { fromClass: () => ({}) }; export const Decoration = {}; export const syntaxTree = () => ({});` }));
 		builder.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian", namespace: "test" }));
 		builder.onLoad({ filter: /^obsidian$/, namespace: "test" }, () => ({
 			contents: `
-				export class TFolder {}
-				export class Plugin {}
+				export class Modal {}
+                export class TFolder {}
+				export class Plugin { registerInterval() {} addRibbonIcon() {} addCommand() {} registerEditorExtension() {} registerMarkdownPostProcessor() {} registerEvent() {} }
+                export class TFile {}
+                export class MarkdownView {}
+                export class Menu {}
+                export const setIcon = () => {};
+                export class Notice { hide() {} }
 				export class PluginSettingTab {}
 				export class Setting {}
 				export const normalizePath = path => path;
@@ -73,7 +81,7 @@ test("retries an oversized download page with a smaller limit and preserves curs
 			? success({ notebook, notes: [{ id: 13, content: "First" }], next_after: 13 })
 			: success({ notebook, notes: [{ id: 19, content: "Second" }], next_after: null });
 	});
-	assert.deepEqual(await client.download(key, 12), { ...notebook, notes: ["First", "Second"] });
+	assert.deepEqual(await client.download(key, 12), { ...notebook, notes: ["First", "Second"], noteIds: [13,19], imageNoteIds: [] });
 	assert.deepEqual(requests, [[null, "10"], [null, "5"], ["13", "5"]]);
 });
 
@@ -120,13 +128,14 @@ function pluginHarness(responses, { previous, secret, existingPaths = [] } = {})
 			getSecret: id => secrets.get(id) ?? null,
 			setSecret: (id, value) => { secrets.set(id, value); },
 		},
-		vault: {
+		workspace: { on: () => ({}) },
+        vault: {
 			getAbstractFileByPath: path => existingPaths.includes(path) ? { path } : null,
 			createFolder: async () => {},
 			create: async (path, value) => created.push({ path, value }),
 		},
 	};
-	globalThis.window = { open: (url, target, flags) => {
+	globalThis.window = { setInterval: () => 1, open: (url, target, flags) => {
 		assert.equal(target, "_blank");
 		assert.match(flags, /noopener/);
 		opened = new URL(url);
@@ -149,7 +158,7 @@ function pluginHarness(responses, { previous, secret, existingPaths = [] } = {})
 		plugin.beginLogin();
 		assert.equal(opened.origin, "https://photes.io");
 		assert.equal(opened.pathname, "/plugin/obsidian/authorize");
-		assert.deepEqual([...opened.searchParams.keys()], ["state", "code_challenge", "code_challenge_method"]);
+		assert.deepEqual([...opened.searchParams.keys()], ["state", "code_challenge", "code_challenge_method", "scope"]);
 		assert.equal(opened.searchParams.get("code_challenge_method"), "S256");
 		return { action: "pixno-auth", code, state: opened.searchParams.get("state") };
 	}
@@ -176,7 +185,7 @@ test("exchanges a browser code once after matching state and PKCE, then imports 
 	assert.match(code_verifier, /^[A-Za-z0-9_-]{43}$/);
 	assert.equal(createHash("sha256").update(code_verifier).digest("base64url"), h.opened().searchParams.get("code_challenge"));
 	assert.equal(h.secrets.get(secretId), firstRefresh);
-	assert.deepEqual(h.saved, [{ version: 3, pendingRotations: [] }, { version: 3, pendingRotations: [] }]);
+	assert.deepEqual(h.saved.map(({ version, pendingRotations }) => ({ version, pendingRotations })), [{ version: 4, pendingRotations: [] }, { version: 4, pendingRotations: [] }]);
 	assert.equal(await h.plugin.importNotebook(12), "Pixno Imports/notebook-12.md");
 	assert.deepEqual(h.created, [{ path: "Pixno Imports/notebook-12.md", value: "# A notebook\n\nFirst\n\nSecond\n" }]);
 	h.plugin.onunload();
@@ -203,14 +212,14 @@ test("coalesces startup rotation and concurrent requests and rotates again on ex
 	t.mock.method(Date, "now", () => time);
 	const rows = success({ notebooks: [notebook], next_after: null });
 	const h = pluginHarness([minted(nextRefresh, 2), rows, rows, minted(firstRefresh), rows], {
-		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+		previous: { version: 4, pendingRotations: [] }, secret: firstRefresh,
 	});
 	await h.plugin.onload();
 	assert.deepEqual(await Promise.all([h.plugin.listNotebooks(), h.plugin.listNotebooks()]), [[notebook], [notebook]]);
 	assert.equal(h.requests.filter(x => x.method === "POST").length, 1);
 	assert.deepEqual(JSON.parse(h.requests[0].body), { grant_type: "refresh_token", refresh_token: firstRefresh });
 	assert.equal(h.secrets.get(secretId), nextRefresh);
-	assert.deepEqual(h.saved, [{ version: 3, pendingRotations: [originKey] }, { version: 3, pendingRotations: [] }]);
+	assert.deepEqual(h.saved.map(({ version, pendingRotations }) => ({ version, pendingRotations })), [{ version: 4, pendingRotations: [originKey] }, { version: 4, pendingRotations: [] }]);
 	time += 3_000;
 	assert.deepEqual(await h.plugin.listNotebooks(), [notebook]);
 	assert.deepEqual(JSON.parse(h.requests[3].body), { grant_type: "refresh_token", refresh_token: nextRefresh });
@@ -221,7 +230,7 @@ test("coalesces startup rotation and concurrent requests and rotates again on ex
 
 test("preserves the local secret after ambiguous refresh and never replays it across restarts", async () => {
 	const h = pluginHarness([() => { throw new Error("private transient provider response"); }], {
-		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+		previous: { version: 4, pendingRotations: [] }, secret: firstRefresh,
 	});
 	await h.plugin.onload();
 	await assert.rejects(h.plugin.listNotebooks(), { status: 503 });
@@ -236,7 +245,7 @@ test("preserves the local secret after ambiguous refresh and never replays it ac
 
 test("allows retry only when the server rejected rotation before executing it", async () => {
 	const h = pluginHarness([{ status: 429, json: { error: "rate_limited" } }, minted(nextRefresh), success({ notebooks: [notebook], next_after: null })], {
-		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+		previous: { version: 4, pendingRotations: [] }, secret: firstRefresh,
 	});
 	await h.plugin.onload();
 	await assert.rejects(h.plugin.listNotebooks(), { status: 429 });
@@ -247,7 +256,7 @@ test("allows retry only when the server rejected rotation before executing it", 
 });
 
 test("clears invalid grants and logs out by exact refresh token with a local clear", async () => {
-	const denied = pluginHarness([{ status: 401 }], { previous: { version: 3, pendingRotations: [] }, secret: firstRefresh });
+	const denied = pluginHarness([{ status: 401 }], { previous: { version: 4, pendingRotations: [] }, secret: firstRefresh });
 	await denied.plugin.onload();
 	await assert.rejects(denied.plugin.listNotebooks(), { status: 401 });
 	assert.equal(denied.plugin.hasSession, false);
@@ -266,7 +275,7 @@ test("clears invalid grants and logs out by exact refresh token with a local cle
 test("rejects late refresh after logout and preserves no local credentials on failed revocation", async () => {
 	let finish;
 	const work = new Promise(resolve => { finish = resolve; });
-	const h = pluginHarness([() => work, { status: 503 }], { previous: { version: 3, pendingRotations: [] }, secret: firstRefresh });
+	const h = pluginHarness([() => work, { status: 503 }], { previous: { version: 4, pendingRotations: [] }, secret: firstRefresh });
 	await h.plugin.onload();
 	const access = h.plugin.listNotebooks();
 	access.catch(() => {});
@@ -307,7 +316,7 @@ test("does not let a late exchange replace a newer browser login", async () => {
 });
 
 test("revokes a newly exchanged grant when vault secret storage rejects the write", async () => {
-	const h = pluginHarness([minted(), { status: 204 }], { previous: { version: 3, pendingRotations: [] } });
+	const h = pluginHarness([minted(), { status: 204 }], { previous: { version: 4, pendingRotations: [] } });
 	h.plugin.app.secretStorage.setSecret = () => { throw new Error("storage unavailable"); };
 	await h.plugin.onload();
 	await h.callback(h.start());
@@ -318,7 +327,7 @@ test("revokes a newly exchanged grant when vault secret storage rejects the writ
 });
 
 test("revokes the known grant and clears its exact secret when settings storage fails", async () => {
-	const h = pluginHarness([minted(), { status: 204 }], { previous: { version: 3, pendingRotations: [] } });
+	const h = pluginHarness([minted(), { status: 204 }], { previous: { version: 4, pendingRotations: [] } });
 	const save = h.plugin.saveData;
 	let first = true;
 	h.plugin.saveData = async value => {
@@ -338,7 +347,7 @@ test("revokes the known grant and clears its exact secret when settings storage 
 
 test("revokes a known rotated grant after a failed local write and does not replay the old refresh secret", async () => {
 	const h = pluginHarness([minted(nextRefresh), { status: 204 }], {
-		previous: { version: 3, pendingRotations: [] }, secret: firstRefresh,
+		previous: { version: 4, pendingRotations: [] }, secret: firstRefresh,
 	});
 	h.plugin.app.secretStorage.setSecret = () => { throw new Error("storage unavailable"); };
 	await h.plugin.onload();
@@ -354,7 +363,7 @@ test("late save-failure cleanup leaves a different login's credential intact", a
 	let failSave;
 	const failedWrite = new Promise((_resolve, reject) => { failSave = reject; });
 	const h = pluginHarness([minted(), minted(nextRefresh), { status: 204 }, { status: 204 }], {
-		previous: { version: 3, pendingRotations: [] },
+		previous: { version: 4, pendingRotations: [] },
 	});
 	const save = h.plugin.saveData;
 	let first = true;
@@ -378,4 +387,136 @@ test("late save-failure cleanup leaves a different login's credential intact", a
 	const revocations = h.requests.filter(request => request.url.endsWith("/logout"));
 	assert.ok(revocations.length > 0);
 	assert.ok(revocations.every(request => JSON.parse(request.body).refresh_token === firstRefresh));
+});
+
+
+test("source-image download keeps bearer on Pixno and detects image associations", async () => {
+ const calls = [];
+ const bytes = new Uint8Array([137,80,78,71,13,10,26,10]).buffer;
+ const client = createPixnoReadClient(async request => {
+  calls.push(request);
+  if (request.url.includes("/download")) return success({ notebook, notes: [{ id: 13, content: "Image note", has_image: true }], next_after: null });
+  if (request.url.includes("/v2/image")) return success({ url: "https://storage.example/storage/v1/object/sign/images/owner/image.png?token=short" });
+  assert.deepEqual(request.headers, {});
+  return { status: 200, json: null, arrayBuffer: bytes };
+ });
+ assert.deepEqual((await client.download(key, 12)).imageNoteIds, [13]);
+ assert.equal(await client.image(key, 13), bytes);
+ assert.equal(calls[1].headers.Authorization, `Bearer ${key}`);
+});
+
+test("generation is not retried and preserves permission errors", async () => {
+ let calls = 0;
+ const client = createPixnoReadClient(async request => {
+  calls++;
+  assert.equal(request.method, "POST");
+  assert.equal(request.headers["Content-Type"], "image/png");
+  return { status: 403, json: { error: "image_permission_required" } };
+ });
+ await assert.rejects(client.generate(key, new ArrayBuffer(8), "image/png"), error => error.code === "image_permission_required");
+ assert.equal(calls, 1);
+});
+
+test("imports image bytes as vault attachments and embeds them in the notebook", async () => {
+ const h = pluginHarness([minted()]); await h.plugin.onload(); await h.callback(h.start());
+ const bytes = new Uint8Array([137,80,78,71,13,10,26,10]).buffer;
+ const assets = [];
+ h.plugin.client = { download: async () => ({ ...notebook, notes: ["Photo text"], noteIds: [13,14], imageNoteIds: [13] }), image: async () => bytes };
+ h.plugin.app.vault.createBinary = async (path, data) => { assets.push({ path, data }); return { path }; };
+ await h.plugin.importNotebook(12);
+ assert.equal(assets.length, 1); assert.equal(assets[0].data, bytes);
+ assert.match(assets[0].path, /^assets\/notebook-12-images\/note-13-[a-f0-9]{64}.png$/);
+ assert.ok(h.created[0].value.includes(`![[${assets[0].path}]]`));
+});
+
+test("an interrupted image download does not save an incomplete notebook or attachments", async () => {
+ const h = pluginHarness([minted()]); await h.plugin.onload(); await h.callback(h.start());
+ let calls = 0; const assets = [];
+ h.plugin.client = { download: async () => ({ ...notebook, notes: ["Photo text"], noteIds: [13,14], imageNoteIds: [13,14] }), image: async () => {
+  if (++calls === 2) throw new PixnoError(503);
+  return new Uint8Array([137,80,78,71,13,10,26,10]).buffer;
+ } };
+ h.plugin.app.vault.createBinary = async (...args) => assets.push(args);
+ await assert.rejects(h.plugin.importNotebook(12), { status: 503 });
+ assert.equal(assets.length, 0); assert.equal(h.created.length, 0);
+});
+
+
+test("respects notebook note order and places each image under its own heading", async () => {
+ const client = createPixnoReadClient(async () => success({ notebook: { ...notebook, note_orders: [19,13] }, notes: [
+  { id: 13, content: "# First\n\nFirst body", has_image: true },
+  { id: 19, content: "# Second\n\nSecond body", has_image: true },
+ ], next_after: null }));
+ const value = await client.download(key, 12);
+ const { notebookMarkdown } = await moduleFor("src/service.ts");
+ const result = notebookMarkdown(value, new Map([[13,"first.png"],[19,"second.png"]]));
+ assert.equal(result, "# A notebook\n\n# Second\n\n![[second.png]]\n\nSecond body\n\n# First\n\n![[first.png]]\n\nFirst body\n");
+ assert.ok(!result.includes("Source images"));
+});
+
+test("image action anchors survive unrelated edits and refuse ambiguous moved images", async () => {
+ const { imageEmbeds, captureAnchor, insertAtAnchor } = await moduleFor("src/image-actions.ts");
+ const text = "# Heading\n![[one.png|300]]\nText\n![two](two.jpg)\n";
+ const embeds = imageEmbeds(text);
+ assert.deepEqual(embeds.map(x => x.source), ["one.png", "two.jpg"]);
+ const anchor = captureAnchor(text, embeds[0].to);
+ assert.equal(insertAtAnchor("prefix\n"+text, anchor, "\nGenerated"), "prefix\n# Heading\n![[one.png|300]]\nGenerated\nText\n![two](two.jpg)\n");
+ assert.throws(() => insertAtAnchor(text.replace("one.png", "changed.png"), anchor, "Generated"));
+ assert.equal(imageEmbeds("```\n![[code.png]]\n```\n`![[inline.png]]`").length, 0);
+});
+
+test("sync protects local edits and mobile blocks preserve unrelated surrounding text", async () => {
+    const { digest, replaceSyncedContent, vaultFolder } = await moduleFor("src/sync-state.ts");
+    const original = "# Cloud\nbody";
+    const record = { path: "notes/cloud.md", digest: digest(original), revision: "" };
+    assert.equal(replaceSyncedContent(original, record, "new"), "new");
+    assert.throws(() => replaceSyncedContent(original + " local", record, "new"));
+    const block = { ...record, block: "12" };
+    const current = `local before\n<!-- pixno:12:start -->${original}<!-- pixno:12:end -->\nlocal after`;
+    assert.equal(replaceSyncedContent(current, block, "new"), "local before\n<!-- pixno:12:start -->new<!-- pixno:12:end -->\nlocal after");
+    assert.throws(() => replaceSyncedContent(current.replace("body", "edited"), block, "new"));
+    assert.throws(() => replaceSyncedContent(current + current, block, "new"));
+    for (const path of ["../outside", ".obsidian", "a/../b", "C:\\outside", "a/[[bad]]"]) assert.throws(() => vaultFolder(path));
+    assert.equal(vaultFolder("/custom/images/"), "custom/images");
+});
+
+test("sync revision checks and mobile creation never expose a bearer in a QR URL or replay POST", async () => {
+    const seen = [];
+    const client = createPixnoReadClient(async request => {
+        seen.push(request);
+        return request.method === "POST" ? success({ notebook_id: 123 }) : success({ revision: "a".repeat(64) });
+    });
+    assert.equal(await client.revision(key, 123), "a".repeat(64));
+    assert.equal(await client.mobile(key), 123);
+    assert.equal(seen[1].url, "https://photes.io/api/plugin/obsidian/v2/mobile");
+    assert.deepEqual(seen[1].headers, { Authorization: `Bearer ${key}` });
+    let attempts = 0;
+    const failed = createPixnoReadClient(async () => { attempts++; throw new Error("connection lost"); });
+    await assert.rejects(failed.mobile(key));
+    assert.equal(attempts, 1);
+});
+
+test("custom folders persist across plugin reload without storing credentials", async () => {
+    const h = pluginHarness([]);
+    await h.plugin.onload();
+    await h.plugin.savePreferences({ imagePath: "Media/Photos", syncPath: "Cloud/Pixno" });
+    const saved = h.saved.at(-1);
+    assert.deepEqual(saved.preferences, { autoSync: false, imagePath: "Media/Photos", syncPath: "Cloud/Pixno" });
+    assert.equal(JSON.stringify(saved).includes("pxor_"), false);
+    const other = pluginHarness([]);
+    other.plugin.loadData = async () => saved;
+    await other.plugin.onload();
+    assert.deepEqual(other.plugin.preferences, saved.preferences);
+});
+
+test("automatic sync skips unchanged revisions and advances past a local conflict", async () => {
+    const h = pluginHarness([minted()]); await h.plugin.onload(); await h.callback(h.start());
+    const imported = [];
+    h.plugin.client = { list: async () => [{ id: 12 }, { id: 13 }, { id: 14 }], revision: async () => "b".repeat(64) };
+    h.plugin.syncRecords["12"] = { path: "old.md", digest: "c".repeat(64), revision: "b".repeat(64) };
+    h.plugin.importWithImages = async id => { imported.push(id); if (id === 13) throw new Error("local edits"); };
+    await h.plugin.syncNotes();
+    assert.deepEqual(imported, [13, 14]);
+    assert.equal(h.plugin.syncing, false);
+    assert.equal(h.plugin.importing, false);
 });

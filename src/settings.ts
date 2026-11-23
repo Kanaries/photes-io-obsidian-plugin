@@ -7,7 +7,8 @@ function message(error: unknown) {
 		case 401: return "Your Pixno session has expired. Log in again.";
 		case 404: return "This notebook is no longer available.";
 		case 409: return "An import already exists at this path. Move it before importing another copy.";
-		case 413: return "This notebook or list is too large for the plugin to import.";
+		case 415: return "A source image has an unsupported format.";
+        case 413: return "This notebook or list is too large for the plugin to import.";
 		case 429: return "Pixno is limiting requests. Wait a minute and try again.";
 		case 503: return "Pixno plugin access is temporarily unavailable.";
 		default: return "Pixno could not complete the request. Try again.";
@@ -51,14 +52,13 @@ export class PixnoSettingsTab extends PluginSettingTab {
 	display() {
 		const { containerEl } = this;
 		containerEl.empty();
-		containerEl.createEl("p", { text: "Import Pixno notebooks as Markdown. Each import creates a new file in Pixno Imports." });
 
 		if (!this.plugin.hasSession || this.plugin.needsLogin || this.plugin.waiting) {
 			new Setting(containerEl)
 				.setName("Pixno")
 				.setDesc(this.plugin.waiting
-					? "Finish signing in and approving access in your browser, then return to Obsidian."
-					: "Log in through the browser to import your notebooks.")
+					? "Continue in your browser."
+					: "")
 				.addButton(button => button.setButtonText(this.plugin.waiting ? "Start a new login" : "Log in to Pixno").setDisabled(this.busy).onClick(() => {
 					try {
 						this.plugin.beginLogin();
@@ -88,14 +88,25 @@ export class PixnoSettingsTab extends PluginSettingTab {
 							this.selection = Number(value);
 						});
 					})
-					.addButton(button => button.setButtonText("Import Markdown").setDisabled(this.busy).onClick(() => this.run(async () => {
+					.addButton(button => button.setButtonText("Import notes and images").setDisabled(this.busy).onClick(() => this.run(async () => {
 						if (this.selection === undefined) return;
 						const path = await this.plugin.importNotebook(this.selection);
 						this.status = `Imported ${path}.`;
 					})));
 			}
 		}
+        new Setting(containerEl).setName("Image folder")
+            .addText(text => text.setValue(this.plugin.preferences.imagePath).onChange(value => { void this.plugin.savePreferences({ imagePath: value }).catch(() => { this.status = "Use a valid folder inside this vault."; }); }));
+        new Setting(containerEl).setName("Notebook folder")
+            .addText(text => text.setValue(this.plugin.preferences.syncPath).onChange(value => { void this.plugin.savePreferences({ syncPath: value }).catch(() => { this.status = "Use a valid folder inside this vault."; }); }));
+        new Setting(containerEl).setName("Automatically sync Pixno notes").setDesc("Every minute. Skips locally edited files.")
+            .addToggle(toggle => toggle.setValue(this.plugin.preferences.autoSync).onChange(value => this.plugin.savePreferences({ autoSync: value })))
+            .addButton(button => button.setButtonText("Sync notes now").onClick(() => this.plugin.syncNotes(true)));
 		if (this.plugin.hasSession) {
+            new Setting(containerEl).setName("Note settings")
+                .setDesc("Model, language and note style.")
+                .addButton(button => button.setButtonText("Open settings").onClick(() => window.open(`${this.plugin.integrationsUrl.replace(/\/account\/integrations$/, "")}/account/note`, "_blank", "noopener,noreferrer")));
+
 			new Setting(containerEl)
 				.setName("Pixno session")
 				.addButton(button => button.setButtonText("Log out").setDisabled(this.busy).onClick(() => this.run(async () => {
